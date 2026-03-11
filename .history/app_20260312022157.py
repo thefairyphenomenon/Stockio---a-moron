@@ -1,5 +1,3 @@
-import os
-
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from functools import wraps
 import database as db
