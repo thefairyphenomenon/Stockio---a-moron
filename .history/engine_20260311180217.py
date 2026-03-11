@@ -203,7 +203,6 @@ def run_price_alert_engine(strategies, today):
 # ENGINE 2 — MA CROSSOVER + TRANSITION DETECTION
 # ═══════════════════════════════════════════════════════
 def run_transition_engine(strategies, today):
-    # One fetch per stock, not per strategy row
     stocks_seen = {}
     for row in strategies:
         wid = row["watchlist_id"]
@@ -213,92 +212,75 @@ def run_transition_engine(strategies, today):
     for wid, row in stocks_seen.items():
         ticker  = row["ticker"]
         company = row["company_name"]
-
-        price = get_price(ticker)
+        price   = get_price(ticker)
         if not price:
             continue
-
         ma10, ma20, ma50, ma200 = get_moving_averages(ticker)
         if not ma10 or not ma20 or not ma50:
             continue
 
-        current_state = detect_ma_state(price, ma10, ma20, ma50, ma200)
-
-        # Inconclusive MA data — skip entirely
-        if current_state == "unknown":
-            continue
-
-        # Get last stored state
+        new_state = detect_ma_state(price, ma10, ma20, ma50, ma200)
         all_strats = db.get_strategies(wid)
         strat_map  = {s["strategy_type"]: s for s in all_strats}
-        ref        = strat_map.get("uptrend") or list(strat_map.values())[0]
+        ref = strat_map.get("uptrend") or list(strat_map.values())[0]
         last_state = ref["last_ma_state"] or ""
 
-        # ── THE CORE RULE ──────────────────────────────
-        # If state hasn't changed → do nothing, fire nothing
-        if current_state == last_state:
-            continue
-        # ───────────────────────────────────────────────
+        # MA crossover alerts
+        up_row = strat_map.get("uptrend")
+        if up_row and up_row["notify_ma_crossover"]:
+            if ma10 < ma20 and "10_BELOW_20" not in last_state:
+                msg = build_ma_message(f"🟡 INFLECTION POINT | {today}", "UPTREND WATCH", company, ticker, price, ma10, ma20, ma50,
+                    "10MA crossed BELOW 20MA. Uptrend weakening. Consider selling 50%.")
+                dispatch(msg, row["telegram_chat_id"], row["email"], company, row["user_id"], ticker, "MA_CROSS", price)
+                for s in all_strats:
+                    db.update_strategy_ma_state(s["id"], new_state + "|10_BELOW_20")
+            elif ma10 > ma20 and "10_BELOW_20" in last_state:
+                msg = build_ma_message(f"🟢 BULLISH CROSS | {today}", "UPTREND SIGNAL", company, ticker, price, ma10, ma20, ma50,
+                    "10MA crossed ABOVE 20MA. Bullish momentum building.")
+                dispatch(msg, row["telegram_chat_id"], row["email"], company, row["user_id"], ticker, "MA_CROSS", price)
+                for s in all_strats:
+                    db.update_strategy_ma_state(s["id"], new_state)
 
-        # State has changed — determine what kind of change and fire ONE alert
-        icons = {"uptrend": "📈", "downtrend": "📉", "consolidation": "➡️"}
+        down_row = strat_map.get("downtrend")
+        if down_row and down_row["notify_trend_break"]:
+            if price < ma50 and "BELOW_50" not in last_state:
+                msg = build_ma_message(f"🔵 TREND BREAK | {today}", "DOWNTREND SIGNAL", company, ticker, price, ma10, ma20, ma50,
+                    "Price crossed BELOW 50MA. Trend broken. Review position.")
+                dispatch(msg, row["telegram_chat_id"], row["email"], company, row["user_id"], ticker, "TREND_BREAK", price)
+                for s in all_strats:
+                    db.update_strategy_ma_state(s["id"], new_state + "|BELOW_50")
+            elif price > ma50 and "BELOW_50" in last_state:
+                msg = build_ma_message(f"🟢 ABOVE 50MA | {today}", "RECOVERY SIGNAL", company, ticker, price, ma10, ma20, ma50,
+                    "Price reclaimed 50MA. Potential reversal upward.")
+                dispatch(msg, row["telegram_chat_id"], row["email"], company, row["user_id"], ticker, "TREND_BREAK", price)
+                for s in all_strats:
+                    db.update_strategy_ma_state(s["id"], new_state)
 
-        if last_state == "":
-            # First time we're seeing this stock — just record state, no alert
-            for s in all_strats:
-                db.update_strategy_ma_state(s["id"], current_state)
-            continue
+        consol_row = strat_map.get("consolidation")
+        if consol_row and consol_row["notify_consolidation_break"]:
+            spread = abs(ma20 - ma50) / ma50 * 100 if ma50 else 99
+            if spread > 2.0 and "CONSOL_BROKEN" not in last_state:
+                direction = "UPSIDE" if ma20 > ma50 else "DOWNSIDE"
+                msg = build_ma_message(f"💥 CONSOLIDATION BREAK | {today}", f"{direction} BREAKOUT", company, ticker, price, ma10, ma20, ma50,
+                    f"MAs diverging {spread:.1f}%. Consolidation ending — {direction} breakout forming.")
+                dispatch(msg, row["telegram_chat_id"], row["email"], company, row["user_id"], ticker, "CONSOL_BREAK", price)
+                for s in all_strats:
+                    db.update_strategy_ma_state(s["id"], new_state + "|CONSOL_BROKEN")
+            elif spread <= 2.0 and "CONSOL_BROKEN" in last_state:
+                for s in all_strats:
+                    db.update_strategy_ma_state(s["id"], new_state)
 
-        if current_state == "consolidation":
-            # Something moved INTO consolidation — MAs compressing
-            note = "20MA and 50MA converging within 2%. Market entering consolidation phase."
-            msg  = build_ma_message(
-                f"➡️ ENTERING CONSOLIDATION | {today}",
-                f"From {last_state.title()} → Consolidation",
-                company, ticker, price, ma10, ma20, ma50, note
-            )
-
-        elif current_state == "uptrend" and last_state == "consolidation":
-            note = "Price and MAs breaking upward from consolidation. Uptrend forming."
-            msg  = build_transition_message(
-                f"📈 BREAKOUT — UPTREND FORMING | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state
-            )
-
-        elif current_state == "uptrend" and last_state == "downtrend":
-            note = "Full reversal. Price and MAs confirming shift from downtrend to uptrend."
-            msg  = build_transition_message(
-                f"📈 FULL REVERSAL — UPTREND | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state
-            )
-
-        elif current_state == "downtrend" and last_state == "consolidation":
-            note = "Price and MAs breaking downward from consolidation. Downtrend forming."
-            msg  = build_transition_message(
-                f"📉 BREAKDOWN — DOWNTREND FORMING | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state
-            )
-
-        elif current_state == "downtrend" and last_state == "uptrend":
-            note = "Trend reversal confirmed. Uptrend has broken down."
-            msg  = build_transition_message(
-                f"📉 TREND REVERSAL — DOWNTREND | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state
-            )
-
-        else:
-            # Catch-all for any other state change
+        # Strategy transition
+        clean_last = last_state.split("|")[0] if last_state else ""
+        if new_state != clean_last and new_state != "unknown" and clean_last not in ["", "unknown"]:
+            icons = {"uptrend": "📈", "downtrend": "📉", "consolidation": "➡️"}
             msg = build_transition_message(
-                f"{icons.get(current_state,'🔄')} STRATEGY TRANSITION | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state
+                f"{icons.get(new_state,'🔄')} STRATEGY TRANSITION | {today}",
+                company, ticker, price, ma10, ma20, ma50, clean_last, new_state
             )
-
-        # Dispatch ONE alert, then update stored state
-        dispatch(msg, row["telegram_chat_id"], row["email"], company,
-                 row["user_id"], ticker, "TRANSITION", price)
-
-        for s in all_strats:
-            db.update_strategy_ma_state(s["id"], current_state)
+            dispatch(msg, row["telegram_chat_id"], row["email"], company, row["user_id"], ticker, "TRANSITION", price)
+            for s in all_strats:
+                db.update_strategy_ma_state(s["id"], new_state)
 
 # ── MAIN RUNNER ───────────────────────────────────────
 def run_alert_engine():
