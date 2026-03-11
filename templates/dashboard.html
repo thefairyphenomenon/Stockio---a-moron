@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockHub — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Clash+Display:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #06090f; --surface: #0c1219; --card: #0f1820;
+  --border: #1c2d3e; --border2: #243548;
+  --accent: #00d4ff; --green: #00ff88; --red: #ff3b5c; --yellow: #ffcc00;
+  --text: #b8c8d8; --text-dim: #4a6070; --text-bright: #e8f4ff;
+  --mono: 'DM Mono', monospace; --display: 'Clash Display', sans-serif;
+}
+body { background: var(--bg); color: var(--text); font-family: var(--mono); min-height: 100vh; }
+
+/* NAV */
+nav {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 56px;
+  position: sticky; top: 0; z-index: 100;
+}
+.nav-logo { display: flex; align-items: center; gap: 10px; }
+.nav-logo-icon { width: 28px; height: 28px; border: 1.5px solid var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.nav-logo-text { font-family: var(--display); font-size: 16px; font-weight: 700; color: #fff; }
+.nav-right { display: flex; align-items: center; gap: 20px; }
+.nav-user { font-size: 12px; color: var(--text-dim); }
+.nav-user span { color: var(--accent); }
+.nav-link { font-size: 12px; color: var(--text-dim); text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); transition: all 0.2s; }
+.nav-link:hover { border-color: var(--accent); color: var(--accent); }
+.ticker-bar {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 32px;
+  font-size: 11px;
+  color: var(--text-dim);
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ticker-scroll { display: inline-block; animation: scroll 30s linear infinite; }
+@keyframes scroll { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+.tick-item { display: inline-block; margin-right: 40px; }
+.tick-up { color: var(--green); }
+.tick-down { color: var(--red); }
+
+/* MAIN LAYOUT */
+.main { display: grid; grid-template-columns: 1fr 320px; gap: 0; min-height: calc(100vh - 57px); }
+.content { padding: 28px 32px; border-right: 1px solid var(--border); }
+.sidebar { padding: 28px 24px; }
+
+/* SECTION HEADERS */
+.section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px;
+}
+.section-title {
+  font-family: var(--display); font-size: 15px; font-weight: 700; color: #fff;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-title::before { content: ''; width: 3px; height: 16px; background: var(--accent); display: block; }
+.count-badge {
+  font-size: 10px; color: var(--accent); border: 1px solid var(--border);
+  padding: 2px 8px; font-family: var(--mono);
+}
+
+/* ADD STOCK FORM */
+.add-form {
+  background: var(--card);
+  border: 1px solid var(--border);
+  padding: 20px;
+  margin-bottom: 28px;
+}
+.add-form-title {
+  font-size: 11px; color: var(--text-dim); letter-spacing: 2px;
+  text-transform: uppercase; margin-bottom: 14px;
+}
+.form-row { display: grid; grid-template-columns: 1fr 1fr auto; gap: 10px; align-items: end; }
+.form-field label { font-size: 10px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-bottom: 6px; }
+input[type=text], input[type=email], input[type=password] {
+  width: 100%; background: var(--surface); border: 1px solid var(--border);
+  color: #fff; font-family: var(--mono); font-size: 12px;
+  padding: 9px 12px; outline: none; transition: border-color 0.2s;
+}
+input:focus { border-color: var(--accent); }
+input::placeholder { color: var(--text-dim); }
+.btn-add {
+  background: var(--accent); color: #000; border: none;
+  font-family: var(--display); font-size: 12px; font-weight: 700;
+  padding: 9px 18px; cursor: pointer; white-space: nowrap;
+  transition: opacity 0.2s; height: 36px;
+}
+.btn-add:hover { opacity: 0.85; }
+
+/* STOCK TABLE */
+.stock-table { width: 100%; border-collapse: collapse; }
+.stock-table th {
+  font-size: 10px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase;
+  text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border);
+  font-weight: 400;
+}
+.stock-table td {
+  padding: 14px 12px; border-bottom: 1px solid var(--border);
+  font-size: 12px; vertical-align: middle;
+}
+.stock-table tr:hover td { background: rgba(0,212,255,0.02); }
+.ticker-cell { font-weight: 500; color: var(--text-bright); }
+.ticker-cell small { display: block; font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.price-cell { color: #fff; font-weight: 500; }
+.price-up { color: var(--green); }
+.price-down { color: var(--red); }
+.target-cell { color: var(--green); }
+.sl-cell { color: var(--red); }
+.status-badge {
+  font-size: 10px; padding: 3px 8px; border: 1px solid;
+  letter-spacing: 1px; white-space: nowrap;
+}
+.status-monitoring { color: var(--accent); border-color: rgba(0,212,255,0.3); background: rgba(0,212,255,0.05); }
+.status-t1 { color: var(--green); border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.05); }
+.status-exit { color: var(--red); border-color: rgba(255,59,92,0.3); background: rgba(255,59,92,0.05); }
+.status-sl { color: var(--yellow); border-color: rgba(255,204,0,0.3); background: rgba(255,204,0,0.05); }
+.status-pending { color: var(--text-dim); border-color: var(--border); }
+.status-ma { color: #b060ff; border-color: rgba(176,96,255,0.3); background: rgba(176,96,255,0.05); }
+.action-btns { display: flex; gap: 6px; }
+.btn-sm {
+  font-size: 10px; padding: 4px 8px; cursor: pointer; border: 1px solid var(--border);
+  background: transparent; color: var(--text-dim); font-family: var(--mono);
+  transition: all 0.2s; letter-spacing: 1px;
+}
+.btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm.danger:hover { border-color: var(--red); color: var(--red); }
+.empty-state {
+  text-align: center; padding: 48px 20px; color: var(--text-dim); font-size: 13px;
+}
+.empty-state .icon { font-size: 32px; margin-bottom: 12px; }
+
+/* SIDEBAR */
+.side-section { margin-bottom: 32px; }
+.side-title {
+  font-family: var(--display); font-size: 13px; font-weight: 700; color: #fff;
+  margin-bottom: 14px; display: flex; align-items: center; gap: 8px;
+}
+.side-title::before { content: ''; width: 2px; height: 12px; background: var(--accent); display: block; }
+
+/* STATS */
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat-card {
+  background: var(--card); border: 1px solid var(--border);
+  padding: 14px; text-align: center;
+}
+.stat-val { font-family: var(--display); font-size: 22px; font-weight: 800; color: #fff; }
+.stat-val.green { color: var(--green); }
+.stat-val.red { color: var(--red); }
+.stat-val.accent { color: var(--accent); }
+.stat-lbl { font-size: 10px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 4px; }
+
+/* ALERT LOG */
+.log-item {
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+.log-item:last-child { border-bottom: none; }
+.log-ticker { color: var(--accent); font-weight: 500; }
+.log-type { font-size: 10px; padding: 2px 6px; border: 1px solid; margin-left: 6px; }
+.log-time { color: var(--text-dim); font-size: 10px; margin-top: 3px; }
+.log-empty { color: var(--text-dim); font-size: 12px; text-align: center; padding: 20px 0; }
+
+/* FLASH */
+.flash-wrap { margin-bottom: 20px; }
+.flash { padding: 10px 14px; font-size: 12px; border-left: 3px solid var(--red); background: rgba(255,59,92,0.08); color: #ff8fa3; margin-bottom: 8px; }
+.flash.success { border-color: var(--green); background: rgba(0,255,136,0.06); color: #80ffbb; }
+
+/* LIVE INDICATOR */
+.live-dot {
+  width: 7px; height: 7px; background: var(--green); border-radius: 50%;
+  display: inline-block; margin-right: 6px;
+  animation: blink 1.5s ease-in-out infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+@media (max-width: 900px) {
+  .main { grid-template-columns: 1fr; }
+  .content { border-right: none; }
+  .form-row { grid-template-columns: 1fr 1fr; }
+  .form-row .btn-add { grid-column: span 2; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">
+    <div class="nav-logo-icon">📈</div>
+    <span class="nav-logo-text">StockHub</span>
+  </div>
+  <div class="nav-right">
+    <span class="nav-user">Logged in as <span>{{ user.name }}</span></span>
+    {% if session.is_admin %}
+    <a href="/admin" class="nav-link">ADMIN</a>
+    {% endif %}
+    <a href="/logout" class="nav-link">LOGOUT</a>
+  </div>
+</nav>
+
+<div class="main">
+  <div class="content">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+      <div class="flash-wrap">
+        {% for category, message in messages %}
+          <div class="flash {{ category }}">{{ message }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    {% endwith %}
+
+    <!-- ADD STOCK -->
+    <div class="add-form">
+      <div class="add-form-title">+ Add Stock to Watchlist</div>
+      <form method="POST" action="/add_stock">
+        <div class="form-row">
+          <div class="form-field">
+            <label>Ticker Symbol</label>
+            <input type="text" name="ticker" placeholder="NASDAQ:AAPL or NSE:TCS" required>
+          </div>
+          <div class="form-field">
+            <label>Company Name</label>
+            <input type="text" name="company_name" placeholder="Apple Inc" required>
+          </div>
+          <button type="submit" class="btn-add">ADD →</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- WATCHLIST -->
+    <div class="section-head">
+      <div class="section-title">Watchlist</div>
+      <span class="count-badge">{{ stocks|length }} STOCKS</span>
+    </div>
+
+    {% if stocks %}
+    <table class="stock-table">
+      <thead>
+        <tr>
+          <th>Stock</th>
+          <th>Entry</th>
+          <th>T1</th>
+          <th>T2</th>
+          <th>SL1</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for stock in stocks %}
+        <tr>
+          <td class="ticker-cell">
+            {{ stock.company_name }}
+            <small>{{ stock.ticker }}</small>
+          </td>
+          <td class="price-cell">
+            {% if stock.entry_price %}{{ "%.2f"|format(stock.entry_price) }}{% else %}—{% endif %}
+          </td>
+          <td class="target-cell">
+            {% if stock.t1 %}{{ "%.2f"|format(stock.t1) }}{% else %}—{% endif %}
+          </td>
+          <td class="target-cell">
+            {% if stock.t2 %}{{ "%.2f"|format(stock.t2) }}{% else %}—{% endif %}
+          </td>
+          <td class="sl-cell">
+            {% if stock.sl1 %}{{ "%.2f"|format(stock.sl1) }}{% else %}—{% endif %}
+          </td>
+          <td>
+            {% set s = stock.status %}
+            {% if s == 'Monitoring...' %}
+              <span class="status-badge status-monitoring">MONITORING</span>
+            {% elif 'T1 HIT' in s %}
+              <span class="status-badge status-t1">T1 HIT</span>
+            {% elif 'FULL EXIT' in s %}
+              <span class="status-badge status-exit">FULL EXIT</span>
+            {% elif 'SL1' in s %}
+              <span class="status-badge status-sl">SL HIT</span>
+            {% elif 'MA SELL' in s %}
+              <span class="status-badge status-ma">{{ s }}</span>
+            {% else %}
+              <span class="status-badge status-pending">{{ s }}</span>
+            {% endif %}
+          </td>
+          <td>
+            <div class="action-btns">
+              <form method="POST" action="/refresh_stock/{{ stock.id }}" style="display:inline">
+                <button type="submit" class="btn-sm">↺ REFRESH</button>
+              </form>
+              <form method="POST" action="/delete_stock/{{ stock.id }}" style="display:inline" onsubmit="return confirm('Remove {{ stock.company_name }}?')">
+                <button type="submit" class="btn-sm danger">✕</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty-state">
+      <div class="icon">📭</div>
+      No stocks in your watchlist yet.<br>Add a ticker above to get started.
+    </div>
+    {% endif %}
+
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- STATS -->
+    <div class="side-section">
+      <div class="side-title">Portfolio Stats</div>
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-val accent">{{ stocks|length }}</div>
+          <div class="stat-lbl">Watching</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val green">{{ stocks|selectattr('status', 'equalto', 'Monitoring...')|list|length }}</div>
+          <div class="stat-lbl">Active</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val green">{{ stocks|selectattr('status', 'containing', 'T1 HIT')|list|length }}</div>
+          <div class="stat-lbl">T1 Hit</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val red">{{ stocks|selectattr('status', 'equalto', 'FULL EXIT')|list|length }}</div>
+          <div class="stat-lbl">Exited</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ENGINE STATUS -->
+    <div class="side-section">
+      <div class="side-title">Engine Status</div>
+      <div style="background:var(--card); border:1px solid var(--border); padding:16px;">
+        <div style="font-size:12px; margin-bottom:10px;">
+          <span class="live-dot"></span>
+          <span style="color:#fff;">Alert Engine</span>
+          <span style="color:var(--green); font-size:11px; float:right;">RUNNING</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-dim); line-height:1.8;">
+          ↻ Checks every 5 minutes<br>
+          📧 Email: {{ user.email }}<br>
+          💬 Telegram: {% if user.telegram_chat_id %}Connected{% else %}<span style="color:var(--red)">Not set</span>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <!-- ALERT LOG -->
+    <div class="side-section">
+      <div class="side-title">Recent Alerts</div>
+      {% if logs %}
+        {% for log in logs[:10] %}
+        <div class="log-item">
+          <span class="log-ticker">{{ log.ticker }}</span>
+          <span class="log-type" style="color:var(--green); border-color:rgba(0,255,136,0.3)">{{ log.alert_type }}</span>
+          <div class="log-time">{{ log.sent_at[:16] }}  ·  ₹{{ log.price }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="log-empty">No alerts fired yet.<br>System is monitoring.</div>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,5 @@
+flask==3.0.0
+yfinance==0.2.36
+apscheduler==3.10.4
+requests==2.31.0
+gunicorn==21.2.0
