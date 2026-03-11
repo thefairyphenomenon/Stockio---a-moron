@@ -78,10 +78,18 @@ def logout():
 @app.route("/dashboard")
 @login_required
 def dashboard():
-    user = db.get_user_by_id(session["user_id"])
+    user   = db.get_user_by_id(session["user_id"])
     stocks = db.get_watchlist(session["user_id"])
     logs   = db.get_alert_log(session["user_id"], limit=20)
-    return render_template("dashboard.html", user=user, stocks=stocks, logs=logs)
+    enriched = []
+    for stock in stocks:
+        item = dict(stock)
+        item["strategies"] = [dict(s) for s in db.get_strategies(stock["id"])]
+        item["ma10"] = None; item["ma20"] = None
+        item["ma50"] = None; item["ma200"] = None
+        item["ma_state"] = "unknown"; item["pnl_pct"] = None
+        enriched.append(item)
+    return render_template("dashboard.html", user=user, stocks=enriched, logs=logs)
 
 @app.route("/api/portfolio")
 @login_required
@@ -199,3 +207,35 @@ def admin_run_engine():
 if __name__ == "__main__":
     db.init_db()
     app.run(debug=True, port=5000)
+
+# ── STRATEGY ROUTES ───────────────────────────────────
+@app.route("/strategy/activate", methods=["POST"])
+@login_required
+def activate_strategy():
+    watchlist_id  = request.form.get("watchlist_id")
+    strategy_type = request.form.get("strategy_type")
+    conn = db.get_db()
+    stock = conn.execute("SELECT id FROM watchlist WHERE id=? AND user_id=?",
+        (watchlist_id, session["user_id"])).fetchone()
+    conn.close()
+    if not stock:
+        flash("Unauthorized", "error")
+        return redirect(url_for("dashboard"))
+    db.set_strategy_active(int(watchlist_id), strategy_type)
+    flash(f"{strategy_type.title()} strategy activated.", "success")
+    return redirect(url_for("dashboard"))
+
+@app.route("/strategy/toggles", methods=["POST"])
+@login_required
+def update_toggles():
+    strategy_id = int(request.form.get("strategy_id"))
+    toggles = {
+        "notify_price_targets":       1 if request.form.get("notify_price_targets")       else 0,
+        "notify_stop_loss":           1 if request.form.get("notify_stop_loss")           else 0,
+        "notify_ma_crossover":        1 if request.form.get("notify_ma_crossover")        else 0,
+        "notify_trend_break":         1 if request.form.get("notify_trend_break")         else 0,
+        "notify_consolidation_break": 1 if request.form.get("notify_consolidation_break") else 0,
+    }
+    db.update_strategy_toggles(strategy_id, toggles)
+    flash("Notification preferences saved.", "success")
+    return redirect(url_for("dashboard"))
