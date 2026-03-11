@@ -13,34 +13,6 @@ def init_db():
     conn = get_db()
     c = conn.cursor()
 
-    # ── NEW: strategies table ─────────────────────────────
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS watchlist_strategies (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            watchlist_id INTEGER NOT NULL,
-            strategy_type TEXT NOT NULL CHECK(strategy_type IN ('uptrend','downtrend','consolidation')),
-            is_active INTEGER DEFAULT 0,
-            t1 REAL,
-            t2 REAL,
-            sl1 REAL,
-            sl2 REAL,
-            t1_pct REAL,
-            t2_pct REAL,
-            sl1_pct REAL,
-            sl2_pct REAL,
-            notify_price_targets INTEGER DEFAULT 1,
-            notify_stop_loss INTEGER DEFAULT 1,
-            notify_ma_crossover INTEGER DEFAULT 1,
-            notify_trend_break INTEGER DEFAULT 1,
-            notify_consolidation_break INTEGER DEFAULT 1,
-            status TEXT DEFAULT 'Monitoring...',
-            last_ma_state TEXT DEFAULT '',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (watchlist_id) REFERENCES watchlist(id) ON DELETE CASCADE,
-            UNIQUE(watchlist_id, strategy_type)
-        )
-    """)
-
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,14 +32,40 @@ def init_db():
             ticker TEXT NOT NULL,
             company_name TEXT NOT NULL,
             entry_price REAL,
-            t1 REAL,
-            t2 REAL,
-            sl1 REAL,
-            sl2 REAL,
+            t1 REAL, t2 REAL, sl1 REAL, sl2 REAL,
             status TEXT DEFAULT 'Monitoring...',
             added_by_admin INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS watchlist_strategies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            watchlist_id INTEGER NOT NULL,
+            strategy_type TEXT NOT NULL CHECK(strategy_type IN ('uptrend','downtrend','consolidation')),
+            is_active INTEGER DEFAULT 0,
+            -- User's levels (what the engine actually alerts on)
+            t1 REAL, t2 REAL, sl1 REAL, sl2 REAL,
+            t1_pct REAL, t2_pct REAL, sl1_pct REAL, sl2_pct REAL,
+            -- Engine's suggested levels (stored separately, never overwritten by user)
+            engine_t1 REAL, engine_t2 REAL, engine_sl1 REAL, engine_sl2 REAL,
+            -- Flag: has the user manually edited their levels?
+            user_overridden INTEGER DEFAULT 0,
+            -- Notification toggles
+            notify_price_targets INTEGER DEFAULT 1,
+            notify_stop_loss INTEGER DEFAULT 1,
+            notify_ma_crossover INTEGER DEFAULT 1,
+            notify_trend_break INTEGER DEFAULT 1,
+            notify_consolidation_break INTEGER DEFAULT 1,
+            -- State tracking
+            status TEXT DEFAULT 'Monitoring...',
+            last_ma_state TEXT DEFAULT '',
+            deviation_warned INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (watchlist_id) REFERENCES watchlist(id) ON DELETE CASCADE,
+            UNIQUE(watchlist_id, strategy_type)
         )
     """)
 
@@ -83,7 +81,6 @@ def init_db():
         )
     """)
 
-    # Create default admin if not exists
     admin_password = hash_password("admin123")
     c.execute("""
         INSERT OR IGNORE INTO users (name, email, password, is_admin)
@@ -130,9 +127,7 @@ def get_all_users():
 
 def get_watchlist(user_id):
     conn = get_db()
-    stocks = conn.execute("""
-        SELECT * FROM watchlist WHERE user_id = ? ORDER BY created_at DESC
-    """, (user_id,)).fetchall()
+    stocks = conn.execute("SELECT * FROM watchlist WHERE user_id = ? ORDER BY created_at DESC", (user_id,)).fetchall()
     conn.close()
     return stocks
 
@@ -146,9 +141,8 @@ def get_all_watchlist():
     conn.close()
     return stocks
 
-def add_stock(user_id, ticker, company_name, added_by_admin=0):
+def add_stock(user_id, ticker, company_name, entry_price=None, added_by_admin=0):
     conn = get_db()
-    # Check if ticker already exists for this user
     existing = conn.execute(
         "SELECT id FROM watchlist WHERE user_id = ? AND ticker = ?",
         (user_id, ticker.upper())
@@ -157,9 +151,9 @@ def add_stock(user_id, ticker, company_name, added_by_admin=0):
         conn.close()
         return False, "Ticker already in watchlist"
     conn.execute("""
-        INSERT INTO watchlist (user_id, ticker, company_name, status, added_by_admin)
-        VALUES (?, ?, ?, 'Pending Refresh', ?)
-    """, (user_id, ticker.upper(), company_name, added_by_admin))
+        INSERT INTO watchlist (user_id, ticker, company_name, entry_price, status, added_by_admin)
+        VALUES (?, ?, ?, ?, 'Pending Refresh', ?)
+    """, (user_id, ticker.upper(), company_name, entry_price, added_by_admin))
     conn.commit()
     conn.close()
     return True, "Stock added"
@@ -170,6 +164,12 @@ def update_stock_levels(stock_id, entry_price, t1, t2, sl1, sl2):
         UPDATE watchlist SET entry_price=?, t1=?, t2=?, sl1=?, sl2=?, status='Monitoring...'
         WHERE id=?
     """, (entry_price, t1, t2, sl1, sl2, stock_id))
+    conn.commit()
+    conn.close()
+
+def update_stock_entry_price(stock_id, entry_price):
+    conn = get_db()
+    conn.execute("UPDATE watchlist SET entry_price=? WHERE id=?", (entry_price, stock_id))
     conn.commit()
     conn.close()
 
@@ -223,7 +223,6 @@ STRATEGY_DEFAULTS = {
 }
 
 def create_strategies_for_stock(watchlist_id, entry_price):
-    """Create 3 strategy rows for a stock using default % levels."""
     conn = get_db()
     for stype, pcts in STRATEGY_DEFAULTS.items():
         t1  = round(entry_price * (1 + pcts["t1_pct"]  / 100), 2)
@@ -232,10 +231,14 @@ def create_strategies_for_stock(watchlist_id, entry_price):
         sl2 = round(entry_price * (1 + pcts["sl2_pct"] / 100), 2)
         conn.execute("""
             INSERT OR IGNORE INTO watchlist_strategies
-            (watchlist_id, strategy_type, t1, t2, sl1, sl2, t1_pct, t2_pct, sl1_pct, sl2_pct)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (watchlist_id, stype, t1, t2, sl1, sl2,
-              pcts["t1_pct"], pcts["t2_pct"], pcts["sl1_pct"], pcts["sl2_pct"]))
+            (watchlist_id, strategy_type,
+             t1, t2, sl1, sl2, t1_pct, t2_pct, sl1_pct, sl2_pct,
+             engine_t1, engine_t2, engine_sl1, engine_sl2)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (watchlist_id, stype,
+              t1, t2, sl1, sl2,
+              pcts["t1_pct"], pcts["t2_pct"], pcts["sl1_pct"], pcts["sl2_pct"],
+              t1, t2, sl1, sl2))
     conn.commit()
     conn.close()
 
@@ -253,7 +256,6 @@ def get_strategies(watchlist_id):
     return rows
 
 def get_all_strategies_for_engine():
-    """Returns all strategies joined with watchlist and user data for the alert engine."""
     conn = get_db()
     rows = conn.execute("""
         SELECT
@@ -268,14 +270,11 @@ def get_all_strategies_for_engine():
     return rows
 
 def set_strategy_active(watchlist_id, strategy_type):
-    """Activate one strategy, deactivate the others for this stock."""
     conn = get_db()
+    conn.execute("UPDATE watchlist_strategies SET is_active=0 WHERE watchlist_id=?", (watchlist_id,))
     conn.execute("""
-        UPDATE watchlist_strategies SET is_active = 0 WHERE watchlist_id = ?
-    """, (watchlist_id,))
-    conn.execute("""
-        UPDATE watchlist_strategies SET is_active = 1
-        WHERE watchlist_id = ? AND strategy_type = ?
+        UPDATE watchlist_strategies SET is_active=1
+        WHERE watchlist_id=? AND strategy_type=?
     """, (watchlist_id, strategy_type))
     conn.commit()
     conn.close()
@@ -284,12 +283,10 @@ def update_strategy_toggles(strategy_id, toggles: dict):
     conn = get_db()
     conn.execute("""
         UPDATE watchlist_strategies SET
-            notify_price_targets = ?,
-            notify_stop_loss = ?,
-            notify_ma_crossover = ?,
-            notify_trend_break = ?,
-            notify_consolidation_break = ?
-        WHERE id = ?
+            notify_price_targets=?, notify_stop_loss=?,
+            notify_ma_crossover=?, notify_trend_break=?,
+            notify_consolidation_break=?
+        WHERE id=?
     """, (
         toggles.get("notify_price_targets", 1),
         toggles.get("notify_stop_loss", 1),
@@ -298,6 +295,47 @@ def update_strategy_toggles(strategy_id, toggles: dict):
         toggles.get("notify_consolidation_break", 1),
         strategy_id
     ))
+    conn.commit()
+    conn.close()
+
+def update_strategy_user_levels(strategy_id, t1, t2, sl1, sl2):
+    """User manually sets their own T1/T2/SL. Sets user_overridden=1. Resets deviation_warned."""
+    conn = get_db()
+    # Recalculate pct relative to entry price
+    stock = conn.execute("""
+        SELECT w.entry_price FROM watchlist w
+        JOIN watchlist_strategies ws ON ws.watchlist_id = w.id
+        WHERE ws.id=?
+    """, (strategy_id,)).fetchone()
+    entry = stock["entry_price"] if stock and stock["entry_price"] else None
+    t1_pct  = round(((t1  - entry) / entry) * 100, 2) if entry else None
+    t2_pct  = round(((t2  - entry) / entry) * 100, 2) if entry else None
+    sl1_pct = round(((sl1 - entry) / entry) * 100, 2) if entry else None
+    sl2_pct = round(((sl2 - entry) / entry) * 100, 2) if entry else None
+    conn.execute("""
+        UPDATE watchlist_strategies
+        SET t1=?, t2=?, sl1=?, sl2=?,
+            t1_pct=?, t2_pct=?, sl1_pct=?, sl2_pct=?,
+            user_overridden=1, deviation_warned=0, status='Monitoring...'
+        WHERE id=?
+    """, (t1, t2, sl1, sl2, t1_pct, t2_pct, sl1_pct, sl2_pct, strategy_id))
+    conn.commit()
+    conn.close()
+
+def update_engine_suggestion(strategy_id, engine_t1, engine_t2, engine_sl1, engine_sl2):
+    """Engine updates its suggested levels without touching user's levels."""
+    conn = get_db()
+    conn.execute("""
+        UPDATE watchlist_strategies
+        SET engine_t1=?, engine_t2=?, engine_sl1=?, engine_sl2=?
+        WHERE id=?
+    """, (engine_t1, engine_t2, engine_sl1, engine_sl2, strategy_id))
+    conn.commit()
+    conn.close()
+
+def reset_deviation_warned(strategy_id):
+    conn = get_db()
+    conn.execute("UPDATE watchlist_strategies SET deviation_warned=0 WHERE id=?", (strategy_id,))
     conn.commit()
     conn.close()
 
@@ -314,17 +352,28 @@ def update_strategy_ma_state(strategy_id, ma_state):
     conn.close()
 
 def refresh_strategy_levels(watchlist_id, entry_price):
-    """Recalculate T1/T2/SL1/SL2 for all 3 strategies when entry price changes."""
+    """Recalculate engine suggestions. Only update user levels if NOT user_overridden."""
     conn = get_db()
     for stype, pcts in STRATEGY_DEFAULTS.items():
         t1  = round(entry_price * (1 + pcts["t1_pct"]  / 100), 2)
         t2  = round(entry_price * (1 + pcts["t2_pct"]  / 100), 2)
         sl1 = round(entry_price * (1 + pcts["sl1_pct"] / 100), 2)
         sl2 = round(entry_price * (1 + pcts["sl2_pct"] / 100), 2)
+        # Always update engine suggestion columns
         conn.execute("""
             UPDATE watchlist_strategies
-            SET t1=?, t2=?, sl1=?, sl2=?, status='Monitoring...'
+            SET engine_t1=?, engine_t2=?, engine_sl1=?, engine_sl2=?
             WHERE watchlist_id=? AND strategy_type=?
         """, (t1, t2, sl1, sl2, watchlist_id, stype))
+        # Only update user-facing levels if not overridden
+        conn.execute("""
+            UPDATE watchlist_strategies
+            SET t1=?, t2=?, sl1=?, sl2=?,
+                t1_pct=?, t2_pct=?, sl1_pct=?, sl2_pct=?,
+                status='Monitoring...'
+            WHERE watchlist_id=? AND strategy_type=? AND user_overridden=0
+        """, (t1, t2, sl1, sl2,
+              pcts["t1_pct"], pcts["t2_pct"], pcts["sl1_pct"], pcts["sl2_pct"],
+              watchlist_id, stype))
     conn.commit()
     conn.close()

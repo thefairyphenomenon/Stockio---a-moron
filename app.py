@@ -1,14 +1,13 @@
-import os
-
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash
 from functools import wraps
 import database as db
 import engine
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
+import os
 
 app = Flask(__name__)
-app.secret_key = "stockhub_secret_2024_change_in_production"
+app.secret_key = os.environ.get("SECRET_KEY", "stockhub_secret_change_in_production")
 
 # ── SCHEDULER ─────────────────────────────────────────
 scheduler = BackgroundScheduler()
@@ -76,7 +75,7 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-# ── USER DASHBOARD ────────────────────────────────────
+# ── DASHBOARD ─────────────────────────────────────────
 @app.route("/dashboard")
 @login_required
 def dashboard():
@@ -93,23 +92,45 @@ def dashboard():
         enriched.append(item)
     return render_template("dashboard.html", user=user, stocks=enriched, logs=logs)
 
+# ── API: LIVE MA FOR DASHBOARD INSTANT FEEDBACK ───────
+@app.route("/api/live_ma")
+@login_required
+def api_live_ma():
+    ticker = request.args.get("ticker", "").strip()
+    if not ticker:
+        return jsonify({"error": "No ticker"}), 400
+    data = engine.get_live_ma_snapshot(ticker)
+    return jsonify(data)
+
 @app.route("/api/portfolio")
 @login_required
 def api_portfolio():
     data = engine.get_portfolio_snapshot(session["user_id"])
     return jsonify(data)
 
+# ── ADD STOCK ─────────────────────────────────────────
 @app.route("/add_stock", methods=["POST"])
 @login_required
 def add_stock():
-    ticker  = request.form.get("ticker", "").strip().upper()
-    company = request.form.get("company_name", "").strip()
+    ticker       = request.form.get("ticker", "").strip().upper()
+    company      = request.form.get("company_name", "").strip()
+    entry_price  = request.form.get("entry_price", "").strip()
+
     if not ticker or not company:
         flash("Ticker and company name are required", "error")
         return redirect(url_for("dashboard"))
-    ok, msg = db.add_stock(session["user_id"], ticker, company)
+
+    # Parse entry price if provided
+    ep = None
+    if entry_price:
+        try:
+            ep = float(entry_price)
+        except ValueError:
+            flash("Invalid entry price", "error")
+            return redirect(url_for("dashboard"))
+
+    ok, msg = db.add_stock(session["user_id"], ticker, company, entry_price=ep)
     if ok:
-        # Auto hard refresh this new stock
         conn = db.get_db()
         stock = conn.execute(
             "SELECT id FROM watchlist WHERE user_id=? AND ticker=?",
@@ -117,12 +138,13 @@ def add_stock():
         ).fetchone()
         conn.close()
         if stock:
-            engine.hard_refresh_stock(stock["id"])
-        flash(f"{company} added and targets locked.", "success")
+            engine.hard_refresh_stock(stock["id"], user_entry_price=ep)
+        flash(f"{company} added. Targets auto-filled — edit them if needed.", "success")
     else:
         flash(msg, "error")
     return redirect(url_for("dashboard"))
 
+# ── DELETE / REFRESH STOCK ────────────────────────────
 @app.route("/delete_stock/<int:stock_id>", methods=["POST"])
 @login_required
 def delete_stock(stock_id):
@@ -133,14 +155,112 @@ def delete_stock(stock_id):
 @app.route("/refresh_stock/<int:stock_id>", methods=["POST"])
 @login_required
 def refresh_stock(stock_id):
-    ok, result = engine.hard_refresh_stock(stock_id)
+    # Allow user to also pass a new entry price on refresh
+    entry_price = request.form.get("entry_price", "").strip()
+    ep = None
+    if entry_price:
+        try:
+            ep = float(entry_price)
+        except ValueError:
+            pass
+    ok, result = engine.hard_refresh_stock(stock_id, user_entry_price=ep)
     if ok:
-        flash(f"Targets refreshed. Entry: {result['price']}", "success")
+        flash(f"Engine suggestions refreshed from entry: {result['price']}", "success")
     else:
         flash(result, "error")
     return redirect(url_for("dashboard"))
 
-# ── ADMIN PANEL ───────────────────────────────────────
+# ── STRATEGY ROUTES ───────────────────────────────────
+@app.route("/strategy/activate", methods=["POST"])
+@login_required
+def activate_strategy():
+    watchlist_id  = request.form.get("watchlist_id")
+    strategy_type = request.form.get("strategy_type")
+    conn = db.get_db()
+    stock = conn.execute("SELECT id FROM watchlist WHERE id=? AND user_id=?",
+        (watchlist_id, session["user_id"])).fetchone()
+    conn.close()
+    if not stock:
+        flash("Unauthorized", "error")
+        return redirect(url_for("dashboard"))
+    db.set_strategy_active(int(watchlist_id), strategy_type)
+    flash(f"{strategy_type.title()} strategy activated.", "success")
+    return redirect(url_for("dashboard"))
+
+@app.route("/strategy/update_levels", methods=["POST"])
+@login_required
+def update_strategy_levels():
+    """User manually saves their own T1/T2/SL1/SL2 for a strategy."""
+    strategy_id = request.form.get("strategy_id")
+    try:
+        t1  = float(request.form.get("t1",  0))
+        t2  = float(request.form.get("t2",  0))
+        sl1 = float(request.form.get("sl1", 0))
+        sl2 = float(request.form.get("sl2", 0))
+    except (ValueError, TypeError):
+        flash("Invalid level values", "error")
+        return redirect(url_for("dashboard"))
+
+    # Verify ownership
+    conn = db.get_db()
+    row = conn.execute("""
+        SELECT w.user_id FROM watchlist_strategies ws
+        JOIN watchlist w ON ws.watchlist_id = w.id
+        WHERE ws.id=?
+    """, (strategy_id,)).fetchone()
+    conn.close()
+    if not row or row["user_id"] != session["user_id"]:
+        flash("Unauthorized", "error")
+        return redirect(url_for("dashboard"))
+
+    db.update_strategy_user_levels(int(strategy_id), t1, t2, sl1, sl2)
+    flash("Your custom levels saved. Engine will still suggest — you'll be warned if they diverge.", "success")
+    return redirect(url_for("dashboard"))
+
+@app.route("/strategy/reset_levels", methods=["POST"])
+@login_required
+def reset_strategy_levels():
+    """Reset user levels back to engine suggestion."""
+    strategy_id = request.form.get("strategy_id")
+    conn = db.get_db()
+    row = conn.execute("""
+        SELECT ws.*, w.user_id, w.entry_price FROM watchlist_strategies ws
+        JOIN watchlist w ON ws.watchlist_id = w.id
+        WHERE ws.id=?
+    """, (strategy_id,)).fetchone()
+    conn.close()
+    if not row or row["user_id"] != session["user_id"]:
+        flash("Unauthorized", "error")
+        return redirect(url_for("dashboard"))
+    # Copy engine suggestion back to user levels, clear override flag
+    conn = db.get_db()
+    conn.execute("""
+        UPDATE watchlist_strategies
+        SET t1=engine_t1, t2=engine_t2, sl1=engine_sl1, sl2=engine_sl2,
+            user_overridden=0, deviation_warned=0, status='Monitoring...'
+        WHERE id=?
+    """, (strategy_id,))
+    conn.commit()
+    conn.close()
+    flash("Levels reset to engine suggestion.", "success")
+    return redirect(url_for("dashboard"))
+
+@app.route("/strategy/toggles", methods=["POST"])
+@login_required
+def update_toggles():
+    strategy_id = int(request.form.get("strategy_id"))
+    toggles = {
+        "notify_price_targets":       1 if request.form.get("notify_price_targets")       else 0,
+        "notify_stop_loss":           1 if request.form.get("notify_stop_loss")           else 0,
+        "notify_ma_crossover":        1 if request.form.get("notify_ma_crossover")        else 0,
+        "notify_trend_break":         1 if request.form.get("notify_trend_break")         else 0,
+        "notify_consolidation_break": 1 if request.form.get("notify_consolidation_break") else 0,
+    }
+    db.update_strategy_toggles(strategy_id, toggles)
+    flash("Notification preferences saved.", "success")
+    return redirect(url_for("dashboard"))
+
+# ── ADMIN ─────────────────────────────────────────────
 @app.route("/admin")
 @admin_required
 def admin_panel():
@@ -152,23 +272,27 @@ def admin_panel():
 @app.route("/admin/add_stock", methods=["POST"])
 @admin_required
 def admin_add_stock():
-    user_id = request.form.get("user_id")
-    ticker  = request.form.get("ticker", "").strip().upper()
-    company = request.form.get("company_name", "").strip()
+    user_id     = request.form.get("user_id")
+    ticker      = request.form.get("ticker", "").strip().upper()
+    company     = request.form.get("company_name", "").strip()
+    entry_price = request.form.get("entry_price", "").strip()
     if not user_id or not ticker or not company:
         flash("All fields required", "error")
         return redirect(url_for("admin_panel"))
-    ok, msg = db.add_stock(int(user_id), ticker, company, added_by_admin=1)
+    ep = None
+    if entry_price:
+        try:
+            ep = float(entry_price)
+        except ValueError:
+            pass
+    ok, msg = db.add_stock(int(user_id), ticker, company, entry_price=ep, added_by_admin=1)
     if ok:
         conn = db.get_db()
-        stock = conn.execute(
-            "SELECT id FROM watchlist WHERE user_id=? AND ticker=?",
-            (int(user_id), ticker)
-        ).fetchone()
+        stock = conn.execute("SELECT id FROM watchlist WHERE user_id=? AND ticker=?", (int(user_id), ticker)).fetchone()
         conn.close()
         if stock:
-            engine.hard_refresh_stock(stock["id"])
-        flash(f"{company} added for user and targets locked.", "success")
+            engine.hard_refresh_stock(stock["id"], user_entry_price=ep)
+        flash(f"{company} added for user.", "success")
     else:
         flash(msg, "error")
     return redirect(url_for("admin_panel"))
@@ -205,42 +329,6 @@ def admin_run_engine():
     engine.run_alert_engine()
     flash("Alert engine ran manually", "success")
     return redirect(url_for("admin_panel"))
-
-if __name__ == "__main__":
-    db.init_db()
-    app.run(debug=True, port=5000)
-
-# ── STRATEGY ROUTES ───────────────────────────────────
-@app.route("/strategy/activate", methods=["POST"])
-@login_required
-def activate_strategy():
-    watchlist_id  = request.form.get("watchlist_id")
-    strategy_type = request.form.get("strategy_type")
-    conn = db.get_db()
-    stock = conn.execute("SELECT id FROM watchlist WHERE id=? AND user_id=?",
-        (watchlist_id, session["user_id"])).fetchone()
-    conn.close()
-    if not stock:
-        flash("Unauthorized", "error")
-        return redirect(url_for("dashboard"))
-    db.set_strategy_active(int(watchlist_id), strategy_type)
-    flash(f"{strategy_type.title()} strategy activated.", "success")
-    return redirect(url_for("dashboard"))
-
-@app.route("/strategy/toggles", methods=["POST"])
-@login_required
-def update_toggles():
-    strategy_id = int(request.form.get("strategy_id"))
-    toggles = {
-        "notify_price_targets":       1 if request.form.get("notify_price_targets")       else 0,
-        "notify_stop_loss":           1 if request.form.get("notify_stop_loss")           else 0,
-        "notify_ma_crossover":        1 if request.form.get("notify_ma_crossover")        else 0,
-        "notify_trend_break":         1 if request.form.get("notify_trend_break")         else 0,
-        "notify_consolidation_break": 1 if request.form.get("notify_consolidation_break") else 0,
-    }
-    db.update_strategy_toggles(strategy_id, toggles)
-    flash("Notification preferences saved.", "success")
-    return redirect(url_for("dashboard"))
 
 if __name__ == "__main__":
     db.init_db()

@@ -10,8 +10,6 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN", "")
 GMAIL_ADDRESS  = os.environ.get("GMAIL_ADDRESS", "")
 GMAIL_PASSWORD = os.environ.get("GMAIL_PASSWORD", "")
 
-DEVIATION_THRESHOLD = 5.0  # % difference that triggers a warning
-
 # ── TICKER CONVERSION ─────────────────────────────────
 def convert_ticker(ticker):
     ticker = ticker.strip().upper()
@@ -59,58 +57,37 @@ def get_moving_averages(ticker):
 def detect_ma_state(price, ma10, ma20, ma50, ma200):
     if not all([price, ma10, ma20, ma50]):
         return "unknown"
-    spread = abs(ma20 - ma50) / ma50 * 100
-    if spread <= 2.0:
-        return "consolidation"
+    if ma20 and ma50:
+        spread = abs(ma20 - ma50) / ma50 * 100
+        if spread <= 2.0:
+            return "consolidation"
     if price > ma20 and ma20 > ma50:
         return "uptrend"
     if price < ma20 and ma20 < ma50:
         return "downtrend"
     return "uptrend" if price > ma50 else "downtrend"
 
-# ── LIVE MA SNAPSHOT (for dashboard API) ─────────────
-def get_live_ma_snapshot(ticker):
-    price = get_price(ticker)
-    ma10, ma20, ma50, ma200 = get_moving_averages(ticker)
-    state = detect_ma_state(price, ma10, ma20, ma50, ma200)
-    return {
-        "price": price,
-        "ma10": ma10, "ma20": ma20, "ma50": ma50, "ma200": ma200,
-        "state": state
-    }
-
 # ── HARD REFRESH ──────────────────────────────────────
-def hard_refresh_stock(stock_id, user_entry_price=None):
-    """
-    If user_entry_price is provided, use it as entry.
-    Otherwise fetch live price as entry.
-    Engine levels are always recalculated from entry.
-    User-overridden levels are never touched.
-    """
+def hard_refresh_stock(stock_id):
     conn = db.get_db()
     stock = conn.execute("SELECT * FROM watchlist WHERE id=?", (stock_id,)).fetchone()
     conn.close()
     if not stock:
         return False, "Stock not found"
-
-    entry = user_entry_price or get_price(stock["ticker"])
-    if not entry:
-        return False, "Could not determine entry price"
-
-    t1  = round(entry * 1.02, 2)
-    t2  = round(entry * 1.05, 2)
-    sl1 = round(entry * 0.98, 2)
-    sl2 = round(entry * 0.95, 2)
-
-    db.update_stock_levels(stock_id, entry, t1, t2, sl1, sl2)
-
+    price = get_price(stock["ticker"])
+    if not price:
+        return False, "Could not fetch price"
+    t1  = round(price * 1.02, 2)
+    t2  = round(price * 1.05, 2)
+    sl1 = round(price * 0.98, 2)
+    sl2 = round(price * 0.95, 2)
+    db.update_stock_levels(stock_id, price, t1, t2, sl1, sl2)
     existing = db.get_strategies(stock_id)
     if existing:
-        db.refresh_strategy_levels(stock_id, entry)
+        db.refresh_strategy_levels(stock_id, price)
     else:
-        db.create_strategies_for_stock(stock_id, entry)
-
-    return True, {"price": entry, "t1": t1, "t2": t2, "sl1": sl1, "sl2": sl2}
+        db.create_strategies_for_stock(stock_id, price)
+    return True, {"price": price, "t1": t1, "t2": t2, "sl1": sl1, "sl2": sl2}
 
 def hard_refresh_user(user_id):
     stocks = db.get_watchlist(user_id)
@@ -127,43 +104,44 @@ def get_portfolio_snapshot(user_id):
     for stock in stocks:
         price = get_price(stock["ticker"])
         ma10, ma20, ma50, ma200 = get_moving_averages(stock["ticker"])
+        ma_state   = detect_ma_state(price, ma10, ma20, ma50, ma200)
+        strategies = db.get_strategies(stock["id"])
         item = dict(stock)
-        item["live_price"] = price
-        item["ma10"]  = ma10;  item["ma20"]  = ma20
-        item["ma50"]  = ma50;  item["ma200"] = ma200
-        item["ma_state"]   = detect_ma_state(price, ma10, ma20, ma50, ma200)
-        item["strategies"] = [dict(s) for s in db.get_strategies(stock["id"])]
-        item["pnl_pct"]    = round(((price - stock["entry_price"]) / stock["entry_price"]) * 100, 2) if price and stock["entry_price"] else None
+        item["live_price"]  = price
+        item["ma10"]        = ma10
+        item["ma20"]        = ma20
+        item["ma50"]        = ma50
+        item["ma200"]       = ma200
+        item["ma_state"]    = ma_state
+        item["strategies"]  = [dict(s) for s in strategies]
+        item["pnl_pct"]     = round(((price - stock["entry_price"]) / stock["entry_price"]) * 100, 2) if price and stock["entry_price"] else None
         result.append(item)
     return result
 
 # ═══════════════════════════════════════════════════════
-# ENGINE 1 — ACTIVE STRATEGY PRICE & SL ALERTS
-# Fires once per level breach. Status column prevents re-firing.
+# ENGINE 1 — ACTIVE STRATEGY PRICE ALERTS
 # ═══════════════════════════════════════════════════════
 def run_price_alert_engine(strategies, today):
     for row in strategies:
-        if not row["is_active"] or row["status"] == "FULL EXIT":
+        if not row["is_active"]:
             continue
-
         ticker   = row["ticker"]
         company  = row["company_name"]
         stype    = row["strategy_type"]
         status   = row["status"]
         t1, t2   = row["t1"], row["t2"]
         sl1, sl2 = row["sl1"], row["sl2"]
-
-        price = get_price(ticker)
+        price    = get_price(ticker)
         if not price or not t1:
             continue
 
         t1_up = round(((t1 - price) / price) * 100, 1)
         t2_up = round(((t2 - price) / price) * 100, 1)
-        msg        = ""
+        msg = ""
         new_status = None
 
         if stype == "uptrend":
-            if price >= t2:
+            if price >= t2 and status != "FULL EXIT":
                 if row["notify_price_targets"]:
                     msg = build_message(f"🚀 TARGET 2 HIT | {today}", stype, company, ticker, price, t1, t2, sl2, t1_up, t2_up, "T2 achieved. Consider full exit.")
                 new_status = "FULL EXIT"
@@ -171,7 +149,7 @@ def run_price_alert_engine(strategies, today):
                 if row["notify_price_targets"]:
                     msg = build_message(f"✅ TARGET 1 HIT | {today}", stype, company, ticker, price, t1, t2, sl1, t1_up, t2_up, "T1 achieved. Book 50%, ride to T2.")
                 new_status = "T1 HIT - Hold 50%"
-            elif price <= sl2 and status != "SL1 - Sell 50%":
+            elif price <= sl2:
                 if row["notify_stop_loss"]:
                     msg = build_message(f"🔴 CRITICAL STOP LOSS | {today}", stype, company, ticker, price, t1, t2, sl2, t1_up, t2_up, "Critical SL breached. Full exit.")
                 new_status = "FULL EXIT"
@@ -181,7 +159,7 @@ def run_price_alert_engine(strategies, today):
                 new_status = "SL1 - Sell 50%"
 
         elif stype == "downtrend":
-            if price <= t2:
+            if price <= t2 and status != "FULL EXIT":
                 if row["notify_price_targets"]:
                     msg = build_message(f"📉 DOWNSIDE T2 HIT | {today}", stype, company, ticker, price, t1, t2, sl2, t1_up, t2_up, "Downside T2 reached. Cover short / exit.")
                 new_status = "FULL EXIT"
@@ -189,7 +167,7 @@ def run_price_alert_engine(strategies, today):
                 if row["notify_price_targets"]:
                     msg = build_message(f"📉 DOWNSIDE T1 HIT | {today}", stype, company, ticker, price, t1, t2, sl1, t1_up, t2_up, "Downside T1 reached. Book 50% of short.")
                 new_status = "T1 HIT - Hold 50%"
-            elif price >= sl2 and status != "SL1 - Sell 50%":
+            elif price >= sl2:
                 if row["notify_stop_loss"]:
                     msg = build_message(f"🔴 CRITICAL STOP LOSS | {today}", stype, company, ticker, price, t1, t2, sl2, t1_up, t2_up, "Stop loss hit on short. Exit immediately.")
                 new_status = "FULL EXIT"
@@ -199,7 +177,7 @@ def run_price_alert_engine(strategies, today):
                 new_status = "SL1 - Sell 50%"
 
         elif stype == "consolidation":
-            if price >= t2:
+            if price >= t2 and status != "FULL EXIT":
                 if row["notify_price_targets"]:
                     msg = build_message(f"🚀 BREAKOUT T2 | {today}", stype, company, ticker, price, t1, t2, sl2, t1_up, t2_up, "Strong breakout confirmed. T2 achieved.")
                 new_status = "FULL EXIT"
@@ -207,7 +185,7 @@ def run_price_alert_engine(strategies, today):
                 if row["notify_price_targets"]:
                     msg = build_message(f"📈 BREAKOUT T1 | {today}", stype, company, ticker, price, t1, t2, sl1, t1_up, t2_up, "Range breakout. Book 50%, target T2.")
                 new_status = "T1 HIT - Hold 50%"
-            elif price <= sl2 and status != "SL1 - Sell 50%":
+            elif price <= sl2:
                 if row["notify_stop_loss"]:
                     msg = build_message(f"🔴 BREAKDOWN SL2 | {today}", stype, company, ticker, price, t1, t2, sl2, t1_up, t2_up, "Range breakdown confirmed. Full exit.")
                 new_status = "FULL EXIT"
@@ -222,10 +200,10 @@ def run_price_alert_engine(strategies, today):
             dispatch(msg, row["telegram_chat_id"], row["email"], company, row["user_id"], ticker, stype.upper(), price)
 
 # ═══════════════════════════════════════════════════════
-# ENGINE 2 — MA STATE CHANGE ALERTS ONLY
-# Fires only when MA state changes. Silence if same state.
+# ENGINE 2 — MA CROSSOVER + TRANSITION DETECTION
 # ═══════════════════════════════════════════════════════
 def run_transition_engine(strategies, today):
+    # One fetch per stock, not per strategy row
     stocks_seen = {}
     for row in strategies:
         wid = row["watchlist_id"]
@@ -245,100 +223,82 @@ def run_transition_engine(strategies, today):
             continue
 
         current_state = detect_ma_state(price, ma10, ma20, ma50, ma200)
+
+        # Inconclusive MA data — skip entirely
         if current_state == "unknown":
             continue
 
+        # Get last stored state
         all_strats = db.get_strategies(wid)
         strat_map  = {s["strategy_type"]: s for s in all_strats}
         ref        = strat_map.get("uptrend") or list(strat_map.values())[0]
         last_state = ref["last_ma_state"] or ""
 
-        # Core rule: silence if no state change
+        # ── THE CORE RULE ──────────────────────────────
+        # If state hasn't changed → do nothing, fire nothing
         if current_state == last_state:
             continue
+        # ───────────────────────────────────────────────
 
-        # First time seeing — just record, no alert
+        # State has changed — determine what kind of change and fire ONE alert
+        icons = {"uptrend": "📈", "downtrend": "📉", "consolidation": "➡️"}
+
         if last_state == "":
+            # First time we're seeing this stock — just record state, no alert
             for s in all_strats:
                 db.update_strategy_ma_state(s["id"], current_state)
             continue
 
-        # Build the right message based on transition type
         if current_state == "consolidation":
-            note = "20MA and 50MA converging within 2%. Market entering consolidation phase. Wait for breakout."
-            msg  = build_ma_message(f"➡️ ENTERING CONSOLIDATION | {today}", f"From {last_state.title()} → Consolidation",
-                company, ticker, price, ma10, ma20, ma50, note)
-        elif current_state == "uptrend" and last_state == "consolidation":
-            note = "Price and MAs breaking upward from consolidation. Uptrend forming. Consider activating Uptrend strategy."
-            msg  = build_transition_message(f"📈 BREAKOUT — UPTREND FORMING | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state)
-        elif current_state == "uptrend" and last_state == "downtrend":
-            note = "Full reversal confirmed. Downtrend has ended. Uptrend structure forming."
-            msg  = build_transition_message(f"📈 FULL REVERSAL — UPTREND | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state)
-        elif current_state == "downtrend" and last_state == "consolidation":
-            note = "MAs diverging downward from consolidation. Downtrend forming. Review stop losses."
-            msg  = build_transition_message(f"📉 BREAKDOWN — DOWNTREND FORMING | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state)
-        elif current_state == "downtrend" and last_state == "uptrend":
-            note = "Uptrend structure broken. Downtrend confirmed. Consider activating Downtrend strategy."
-            msg  = build_transition_message(f"📉 TREND REVERSAL — DOWNTREND | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state)
-        else:
-            icons = {"uptrend": "📈", "downtrend": "📉", "consolidation": "➡️"}
-            msg = build_transition_message(f"{icons.get(current_state,'🔄')} STRATEGY TRANSITION | {today}",
-                company, ticker, price, ma10, ma20, ma50, last_state, current_state)
+            # Something moved INTO consolidation — MAs compressing
+            note = "20MA and 50MA converging within 2%. Market entering consolidation phase."
+            msg  = build_ma_message(
+                f"➡️ ENTERING CONSOLIDATION | {today}",
+                f"From {last_state.title()} → Consolidation",
+                company, ticker, price, ma10, ma20, ma50, note
+            )
 
+        elif current_state == "uptrend" and last_state == "consolidation":
+            note = "Price and MAs breaking upward from consolidation. Uptrend forming."
+            msg  = build_transition_message(
+                f"📈 BREAKOUT — UPTREND FORMING | {today}",
+                company, ticker, price, ma10, ma20, ma50, last_state, current_state
+            )
+
+        elif current_state == "uptrend" and last_state == "downtrend":
+            note = "Full reversal. Price and MAs confirming shift from downtrend to uptrend."
+            msg  = build_transition_message(
+                f"📈 FULL REVERSAL — UPTREND | {today}",
+                company, ticker, price, ma10, ma20, ma50, last_state, current_state
+            )
+
+        elif current_state == "downtrend" and last_state == "consolidation":
+            note = "Price and MAs breaking downward from consolidation. Downtrend forming."
+            msg  = build_transition_message(
+                f"📉 BREAKDOWN — DOWNTREND FORMING | {today}",
+                company, ticker, price, ma10, ma20, ma50, last_state, current_state
+            )
+
+        elif current_state == "downtrend" and last_state == "uptrend":
+            note = "Trend reversal confirmed. Uptrend has broken down."
+            msg  = build_transition_message(
+                f"📉 TREND REVERSAL — DOWNTREND | {today}",
+                company, ticker, price, ma10, ma20, ma50, last_state, current_state
+            )
+
+        else:
+            # Catch-all for any other state change
+            msg = build_transition_message(
+                f"{icons.get(current_state,'🔄')} STRATEGY TRANSITION | {today}",
+                company, ticker, price, ma10, ma20, ma50, last_state, current_state
+            )
+
+        # Dispatch ONE alert, then update stored state
         dispatch(msg, row["telegram_chat_id"], row["email"], company,
                  row["user_id"], ticker, "TRANSITION", price)
 
         for s in all_strats:
             db.update_strategy_ma_state(s["id"], current_state)
-
-# ═══════════════════════════════════════════════════════
-# ENGINE 3 — DEVIATION WARNING
-# Every engine run: if user's levels differ >5% from engine's
-# suggestion, fire a warning on Telegram.
-# ═══════════════════════════════════════════════════════
-def run_deviation_engine(strategies, today):
-    for row in strategies:
-        if not row["user_overridden"]:
-            continue  # Engine's own levels — no deviation possible
-
-        user_t1   = row["t1"]
-        user_sl1  = row["sl1"]
-        engine_t1 = row["engine_t1"]
-        engine_sl1= row["engine_sl1"]
-
-        if not all([user_t1, user_sl1, engine_t1, engine_sl1]):
-            continue
-
-        t1_dev  = abs(user_t1  - engine_t1)  / engine_t1  * 100
-        sl1_dev = abs(user_sl1 - engine_sl1) / engine_sl1 * 100
-
-        if t1_dev > DEVIATION_THRESHOLD or sl1_dev > DEVIATION_THRESHOLD:
-            ticker  = row["ticker"]
-            company = row["company_name"]
-            stype   = row["strategy_type"]
-
-            msg  = f"<b>⚠️ CUSTOM LEVELS DEVIATION WARNING | {today}</b>\n\n"
-            msg += f"<b>{company}</b>  |  <code>{ticker}</code>\n"
-            msg += f"📊 <b>Strategy:</b> {STRATEGY_LABELS.get(stype, stype.title())}\n\n"
-            msg += f"Your custom levels differ significantly from engine suggestion:\n\n"
-            if t1_dev > DEVIATION_THRESHOLD:
-                msg += f"🎯 <b>T1 Deviation:</b> {t1_dev:.1f}%\n"
-                msg += f"     Your T1:    <b>{user_t1:.2f}</b>\n"
-                msg += f"     Engine T1:  <b>{engine_t1:.2f}</b>\n\n"
-            if sl1_dev > DEVIATION_THRESHOLD:
-                msg += f"🛡 <b>SL1 Deviation:</b> {sl1_dev:.1f}%\n"
-                msg += f"     Your SL1:   <b>{user_sl1:.2f}</b>\n"
-                msg += f"     Engine SL1: <b>{engine_sl1:.2f}</b>\n\n"
-            msg += f"<i>This is a suggestion only. Your levels remain active.</i>\n\n"
-            msg += f"⚠️ <b>Do your own research before acting.</b>"
-
-            dispatch(msg, row["telegram_chat_id"], row["email"],
-                     company, row["user_id"], ticker, "DEVIATION_WARNING",
-                     get_price(ticker) or 0)
 
 # ── MAIN RUNNER ───────────────────────────────────────
 def run_alert_engine():
@@ -350,15 +310,10 @@ def run_alert_engine():
         return
     run_price_alert_engine(strategies, today)
     run_transition_engine(strategies, today)
-    run_deviation_engine(strategies, today)
     print(f"  Done.")
 
 # ── MESSAGE BUILDERS ──────────────────────────────────
-STRATEGY_LABELS = {
-    "uptrend":       "📈 Uptrend",
-    "downtrend":     "📉 Downtrend",
-    "consolidation": "➡️ Consolidation"
-}
+STRATEGY_LABELS = {"uptrend": "📈 Uptrend", "downtrend": "📉 Downtrend", "consolidation": "➡️ Consolidation"}
 
 def build_message(header, strategy, company, ticker, price, t1, t2, sl, t1_up, t2_up, note):
     msg  = f"<b>{header}</b>\n\n"
