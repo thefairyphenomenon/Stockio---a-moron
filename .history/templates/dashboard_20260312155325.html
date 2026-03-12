@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockHub — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Clash+Display:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #06090f; --surface: #0c1219; --card: #0f1820; --card2: #111e2a;
+  --border: #1c2d3e; --border2: #243548;
+  --accent: #00d4ff; --green: #00ff88; --red: #ff3b5c;
+  --yellow: #ffcc00; --purple: #b060ff;
+  --text: #b8c8d8; --text-dim: #4a6070; --text-bright: #e8f4ff;
+  --mono: 'DM Mono', monospace; --display: 'Clash Display', sans-serif;
+}
+body { background: var(--bg); color: var(--text); font-family: var(--mono); min-height: 100vh; }
+
+nav {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 0 32px; display: flex; align-items: center;
+  justify-content: space-between; height: 56px; position: sticky; top: 0; z-index: 100;
+}
+.nav-logo { display: flex; align-items: center; gap: 10px; }
+.nav-logo-icon { width: 28px; height: 28px; border: 1.5px solid var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.nav-logo-text { font-family: var(--display); font-size: 16px; font-weight: 700; color: #fff; }
+.nav-right { display: flex; align-items: center; gap: 12px; }
+.nav-user { font-size: 12px; color: var(--text-dim); }
+.nav-user span { color: var(--accent); }
+.nav-link { font-size: 12px; color: var(--text-dim); text-decoration: none; padding: 6px 12px; border: 1px solid var(--border); transition: all 0.2s; }
+.nav-link:hover { border-color: var(--accent); color: var(--accent); }
+
+.layout { display: grid; grid-template-columns: 1fr 300px; min-height: calc(100vh - 56px); }
+.main-col { padding: 28px 32px; border-right: 1px solid var(--border); }
+.side-col  { padding: 24px 20px; }
+
+/* ADD FORM */
+.add-form { background: var(--card); border: 1px solid var(--border); padding: 20px; margin-bottom: 32px; }
+.add-form-title { font-size: 11px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 14px; }
+.form-grid { display: grid; grid-template-columns: 1.5fr 1.5fr 1fr auto; gap: 10px; align-items: end; }
+.field label { font-size: 10px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-bottom: 6px; }
+input[type=text], input[type=number] {
+  width: 100%; background: var(--surface); border: 1px solid var(--border);
+  color: #fff; font-family: var(--mono); font-size: 12px; padding: 9px 12px;
+  outline: none; transition: border-color 0.2s;
+}
+input:focus { border-color: var(--accent); }
+input::placeholder { color: var(--text-dim); }
+
+/* MA LIVE HINT */
+.ma-hint {
+  grid-column: span 4;
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 12px 14px; font-size: 11px; display: none;
+  animation: fadeIn 0.3s ease;
+}
+@keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:translateY(0)} }
+.ma-hint-row { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.ma-hint-item { color: var(--text-dim); }
+.ma-hint-item span { color: var(--text-bright); font-weight: 500; margin-left: 4px; }
+.ma-state-pill { font-size: 10px; padding: 3px 8px; border: 1px solid; letter-spacing: 1px; margin-left: auto; }
+.pill-uptrend      { color: var(--green);  border-color: rgba(0,255,136,0.4); background: rgba(0,255,136,0.08); }
+.pill-downtrend    { color: var(--red);    border-color: rgba(255,59,92,0.4);  background: rgba(255,59,92,0.08);  }
+.pill-consolidation{ color: var(--yellow); border-color: rgba(255,204,0,0.4);  background: rgba(255,204,0,0.08);  }
+.pill-unknown      { color: var(--text-dim); border-color: var(--border); }
+.ma-hint-note { font-size: 11px; color: var(--text-dim); margin-top: 8px; }
+.ma-hint-note span { color: var(--accent); }
+
+.btn-add { background: var(--accent); color: #000; border: none; font-family: var(--display); font-size: 12px; font-weight: 700; padding: 9px 16px; cursor: pointer; height: 36px; transition: opacity 0.2s; white-space: nowrap; }
+.btn-add:hover { opacity: 0.85; }
+
+/* SECTION */
+.section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.section-title { font-family: var(--display); font-size: 15px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 10px; }
+.section-title::before { content: ''; width: 3px; height: 16px; background: var(--accent); display: block; }
+
+/* STOCK CARD */
+.stock-card { background: var(--card); border: 1px solid var(--border); margin-bottom: 16px; }
+.stock-card:hover { border-color: var(--border2); }
+.stock-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; cursor: pointer; border-bottom: 1px solid var(--border); }
+.stock-left { display: flex; align-items: center; gap: 14px; }
+.stock-icon { width: 36px; height: 36px; background: var(--surface); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0; }
+.stock-name { font-family: var(--display); font-size: 14px; font-weight: 700; color: #fff; }
+.stock-ticker { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.stock-right { display: flex; align-items: center; gap: 12px; }
+.stock-entry-display { text-align: right; }
+.stock-price-val { font-family: var(--display); font-size: 16px; font-weight: 700; color: #fff; }
+.stock-price-label { font-size: 10px; color: var(--text-dim); }
+.pnl { font-size: 11px; padding: 2px 8px; border: 1px solid; font-weight: 500; }
+.pnl-pos { color: var(--green); border-color: rgba(0,255,136,0.3); }
+.pnl-neg { color: var(--red);   border-color: rgba(255,59,92,0.3); }
+.ma-state-badge { font-size: 10px; padding: 3px 8px; border: 1px solid; letter-spacing: 1px; }
+.state-uptrend       { color: var(--green);  border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.05); }
+.state-downtrend     { color: var(--red);    border-color: rgba(255,59,92,0.3);  background: rgba(255,59,92,0.05);  }
+.state-consolidation { color: var(--yellow); border-color: rgba(255,204,0,0.3);  background: rgba(255,204,0,0.05);  }
+.state-unknown       { color: var(--text-dim); border-color: var(--border); }
+.chevron { color: var(--text-dim); font-size: 12px; transition: transform 0.2s; }
+.stock-card.open .chevron { transform: rotate(180deg); }
+
+/* MA BAR */
+.ma-bar { display: flex; align-items: center; gap: 20px; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); font-size: 11px; flex-wrap: wrap; }
+.ma-item { color: var(--text-dim); }
+.ma-item span { color: var(--text-bright); font-weight: 500; margin-left: 4px; }
+
+/* STRATEGY GRID */
+.strategies-wrap { padding: 16px 20px; display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.strategy-panel { border: 1px solid var(--border); background: var(--card2); }
+.strategy-panel.active-panel.uptrend-panel    { border-color: var(--green); box-shadow: 0 0 16px rgba(0,255,136,0.06); }
+.strategy-panel.active-panel.downtrend-panel  { border-color: var(--red);   box-shadow: 0 0 16px rgba(255,59,92,0.06); }
+.strategy-panel.active-panel.consol-panel     { border-color: var(--yellow);box-shadow: 0 0 16px rgba(255,204,0,0.06); }
+
+.sp-header { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.sp-title { font-family: var(--display); font-size: 12px; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 6px; }
+.sp-badges { display: flex; align-items: center; gap: 5px; }
+.sp-badge { font-size: 9px; padding: 2px 6px; letter-spacing: 1px; font-weight: 700; }
+.badge-active-green  { background: var(--green);  color: #000; }
+.badge-active-red    { background: var(--red);    color: #fff; }
+.badge-active-yellow { background: var(--yellow); color: #000; }
+.badge-custom { background: rgba(176,96,255,0.2); color: var(--purple); border: 1px solid rgba(176,96,255,0.4); }
+.sp-status { font-size: 10px; padding: 1px 6px; border: 1px solid; }
+.sp-status-monitoring { color: var(--accent);   border-color: rgba(0,212,255,0.3); }
+.sp-status-t1         { color: var(--green);    border-color: rgba(0,255,136,0.3); }
+.sp-status-exit       { color: var(--red);      border-color: rgba(255,59,92,0.3); }
+.sp-status-sl         { color: var(--yellow);   border-color: rgba(255,204,0,0.3); }
+.sp-status-pending    { color: var(--text-dim); border-color: var(--border); }
+
+/* LEVELS — view and edit modes */
+.sp-levels { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.level-view { display: flex; flex-direction: column; gap: 5px; }
+.sp-level-row { display: flex; justify-content: space-between; align-items: center; font-size: 11px; }
+.sp-level-label { color: var(--text-dim); }
+.val-t1  { color: var(--green);  font-weight: 500; }
+.val-t2  { color: #00ffcc; font-weight: 500; }
+.val-sl1 { color: var(--yellow); font-weight: 500; }
+.val-sl2 { color: var(--red);    font-weight: 500; }
+.engine-hint { font-size: 10px; color: var(--text-dim); font-style: italic; }
+
+/* EDIT MODE */
+.level-edit { display: none; }
+.edit-field { margin-bottom: 8px; }
+.edit-field label { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; display: block; margin-bottom: 4px; }
+.edit-field input { width: 100%; background: var(--surface); border: 1px solid var(--border); color: #fff; font-family: var(--mono); font-size: 12px; padding: 7px 10px; outline: none; transition: border-color 0.2s; }
+.edit-field input:focus { border-color: var(--accent); }
+.edit-hint { font-size: 10px; color: var(--text-dim); margin-top: 2px; font-style: italic; }
+
+/* TOGGLES */
+.sp-toggles { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.toggle-label { font-size: 10px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; font-size: 11px; color: var(--text); margin-bottom: 5px; }
+.toggle-switch { position: relative; width: 32px; height: 16px; flex-shrink: 0; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; cursor: pointer; inset: 0; background: var(--border); transition: 0.2s; border-radius: 16px; }
+.toggle-slider::before { position: absolute; content: ''; height: 10px; width: 10px; left: 3px; bottom: 3px; background: var(--text-dim); transition: 0.2s; border-radius: 50%; }
+input:checked + .toggle-slider { background: var(--accent); }
+input:checked + .toggle-slider::before { transform: translateX(16px); background: #000; }
+
+/* ACTIONS */
+.sp-actions { padding: 10px 14px; display: flex; gap: 6px; flex-wrap: wrap; }
+.btn-sp { flex: 1; font-family: var(--mono); font-size: 10px; letter-spacing: 1px; padding: 6px 8px; cursor: pointer; border: 1px solid; background: transparent; text-transform: uppercase; transition: all 0.2s; white-space: nowrap; min-width: 0; }
+.btn-green  { color: var(--green);  border-color: rgba(0,255,136,0.4); }
+.btn-green:hover  { background: rgba(0,255,136,0.1); }
+.btn-red    { color: var(--red);    border-color: rgba(255,59,92,0.4); }
+.btn-red:hover    { background: rgba(255,59,92,0.1); }
+.btn-yellow { color: var(--yellow); border-color: rgba(255,204,0,0.4); }
+.btn-yellow:hover { background: rgba(255,204,0,0.1); }
+.btn-dim    { color: var(--text-dim); border-color: var(--border); }
+.btn-dim:hover    { border-color: var(--accent); color: var(--accent); }
+.btn-active-green  { background: var(--green);  border-color: var(--green);  color: #000; font-weight: 700; }
+.btn-active-red    { background: var(--red);    border-color: var(--red);    color: #fff; font-weight: 700; }
+.btn-active-yellow { background: var(--yellow); border-color: var(--yellow); color: #000; font-weight: 700; }
+
+/* STOCK FOOTER */
+.stock-footer { padding: 10px 20px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--border); }
+.btn-sm { font-size: 10px; padding: 5px 10px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text-dim); font-family: var(--mono); transition: all 0.2s; letter-spacing: 1px; }
+.btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+.btn-sm.danger:hover { border-color: var(--red); color: var(--red); }
+
+/* SIDEBAR */
+.side-section { margin-bottom: 28px; }
+.side-title { font-family: var(--display); font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.side-title::before { content: ''; width: 2px; height: 12px; background: var(--accent); display: block; }
+.stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat-card { background: var(--card); border: 1px solid var(--border); padding: 12px; text-align: center; }
+.stat-val { font-family: var(--display); font-size: 22px; font-weight: 800; color: #fff; }
+.stat-val.green { color: var(--green); } .stat-val.red { color: var(--red); } .stat-val.accent { color: var(--accent); }
+.stat-lbl { font-size: 10px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 3px; }
+.engine-box { background: var(--card); border: 1px solid var(--border); padding: 14px; }
+.live-dot { width: 7px; height: 7px; background: var(--green); border-radius: 50%; display: inline-block; margin-right: 6px; animation: blink 1.5s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+.log-item { padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 11px; }
+.log-item:last-child { border-bottom: none; }
+.log-ticker { color: var(--accent); font-weight: 500; }
+.log-time { color: var(--text-dim); font-size: 10px; margin-top: 2px; }
+.flash-wrap { margin-bottom: 20px; }
+.flash { padding: 10px 14px; font-size: 12px; border-left: 3px solid var(--red); background: rgba(255,59,92,0.08); color: #ff8fa3; margin-bottom: 8px; }
+.flash.success { border-color: var(--green); background: rgba(0,255,136,0.06); color: #80ffbb; }
+.empty-state { text-align: center; padding: 60px 20px; color: var(--text-dim); }
+.empty-state .icon { font-size: 36px; margin-bottom: 12px; }
+
+@media(max-width:900px) {
+  .layout { grid-template-columns: 1fr; }
+  .strategies-wrap { grid-template-columns: 1fr; }
+  .form-grid { grid-template-columns: 1fr 1fr; }
+  .form-grid .btn-add { grid-column: span 2; width: 100%; }
+  .ma-hint { grid-column: span 2; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="nav-logo">
+    <div class="nav-logo-icon">📈</div>
+    <span class="nav-logo-text">StockHub</span>
+  </div>
+  <div class="nav-right">
+    <span class="nav-user">{{ user.name }}</span>
+    {% if session.is_admin %}<a href="/admin" class="nav-link">ADMIN</a>{% endif %}
+    <a href="/logout" class="nav-link">LOGOUT</a>
+  </div>
+</nav>
+
+<div class="layout">
+<div class="main-col">
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-wrap">
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- ADD STOCK FORM -->
+  <div class="add-form">
+    <div class="add-form-title">+ Add Stock to Watchlist</div>
+    <form method="POST" action="/add_stock" id="addStockForm">
+      <div class="form-grid">
+        <div class="field">
+          <label>Ticker Symbol</label>
+          <input type="text" name="ticker" id="tickerInput" placeholder="NASDAQ:AAPL or NSE:TCS" required autocomplete="off">
+        </div>
+        <div class="field">
+          <label>Company Name</label>
+          <input type="text" name="company_name" placeholder="Apple Inc" required>
+        </div>
+        <div class="field">
+          <label>Entry Price <span style="color:var(--text-dim)">(optional)</span></label>
+          <input type="number" name="entry_price" id="entryPriceInput" placeholder="e.g. 175.50" step="0.01" min="0">
+        </div>
+        <button type="submit" class="btn-add">ADD →</button>
+
+        <!-- MA LIVE HINT — shows when ticker is typed -->
+        <div class="ma-hint" id="maHint">
+          <div class="ma-hint-row" id="maHintRow">
+            <span style="color:var(--text-dim);font-size:11px">Fetching MAs...</span>
+          </div>
+          <div class="ma-hint-note" id="maHintNote"></div>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- WATCHLIST -->
+  <div class="section-head">
+    <div class="section-title">Watchlist</div>
+    <span style="font-size:11px;color:var(--text-dim)">{{ stocks|length }} stocks · 3 strategies each</span>
+  </div>
+
+  {% if stocks %}
+    {% for stock in stocks %}
+    {% set strategies = stock.get('strategies', []) if stock is mapping else [] %}
+
+    <div class="stock-card" id="card-{{ stock.id }}">
+
+      <div class="stock-header" onclick="toggleCard('{{ stock.id }}')">
+        <div class="stock-left">
+          <div class="stock-icon">📊</div>
+          <div>
+            <div class="stock-name">{{ stock.company_name }}</div>
+            <div class="stock-ticker">{{ stock.ticker }}</div>
+          </div>
+        </div>
+        <div class="stock-right">
+          <div class="stock-entry-display">
+            <div class="stock-price-val">
+              {% if stock.entry_price %}{{ "%.2f"|format(stock.entry_price) }}{% else %}—{% endif %}
+            </div>
+            <div class="stock-price-label">Entry price</div>
+          </div>
+          {% if stock.pnl_pct is not none %}
+            <span class="pnl {% if stock.pnl_pct >= 0 %}pnl-pos{% else %}pnl-neg{% endif %}">
+              {% if stock.pnl_pct >= 0 %}+{% endif %}{{ stock.pnl_pct }}%
+            </span>
+          {% endif %}
+          <span class="chevron">▼</span>
+        </div>
+      </div>
+
+      <!-- MA + INDICATOR BAR -->
+      <div class="ma-bar">
+        <span class="ma-item">10MA <span>{{ "%.2f"|format(stock.ma10) if stock.ma10 else '—' }}</span></span>
+        <span class="ma-item">20MA <span>{{ "%.2f"|format(stock.ma20) if stock.ma20 else '—' }}</span></span>
+        <span class="ma-item">50MA <span>{{ "%.2f"|format(stock.ma50) if stock.ma50 else '—' }}</span></span>
+        <span class="ma-item">200MA <span>{{ "%.2f"|format(stock.ma200) if stock.ma200 else '—' }}</span></span>
+        {% if stock.get('rsi') %}
+          {% set r = stock.rsi %}
+          <span class="ma-item" style="color:{% if r < 30 %}var(--red){% elif r < 50 %}var(--yellow){% else %}var(--green){% endif %}">
+            RSI <span>{{ r }}</span>
+            <span style="font-size:9px;margin-left:2px">
+              {% if r < 30 %}🚨{% elif r < 40 %}⚠️{% elif r < 50 %}⚡{% endif %}
+            </span>
+          </span>
+        {% endif %}
+        {% if stock.get('adx') %}
+          {% set a = stock.adx %}
+          <span class="ma-item" style="color:{% if stock.get('adx_label') == 'STRONG DOWN' %}var(--red){% elif stock.get('adx_label') == 'NEGATIVE' %}var(--yellow){% else %}var(--text){% endif %}">
+            ADX <span>{{ a }}</span>
+          </span>
+        {% endif %}
+        {% if stock.get('volume_ratio') %}
+          <span class="ma-item" style="color:{% if stock.volume_ratio >= 1.5 %}var(--green){% elif stock.volume_ratio < 0.7 %}var(--red){% else %}var(--text){% endif %}">
+            Vol <span>{{ stock.volume_ratio }}x</span>
+          </span>
+        {% endif %}
+        {% if stock.get('exit_score', 0) > 0 %}
+          <span class="ma-item" style="color:{% if stock.exit_score >= 5 %}var(--red){% elif stock.exit_score >= 3 %}var(--yellow){% else %}var(--text-dim){% endif %}">
+            Exit Score <span>{{ stock.exit_score }}/7</span>
+          </span>
+        {% endif %}
+        {% set state = stock.ma_state or 'unknown' %}
+        <span class="ma-state-badge state-{{ state }}">
+          {% if state == 'uptrend' %}📈 UPTREND
+          {% elif state == 'downtrend' %}📉 DOWNTREND
+          {% elif state == 'consolidation' %}➡️ CONSOLIDATION
+          {% else %}— UNKNOWN{% endif %}
+        </span>
+      </div>
+
+      <!-- STRATEGY PANELS -->
+      <div id="body-{{ stock.id }}" style="display:none">
+        <div class="strategies-wrap">
+
+          {% set configs = [
+            ('uptrend',       '📈', 'Uptrend',       'uptrend-panel',  'btn-green',  'btn-active-green',  'badge-active-green'),
+            ('downtrend',     '📉', 'Downtrend',     'downtrend-panel','btn-red',    'btn-active-red',    'badge-active-red'),
+            ('consolidation', '➡️', 'Consolidation', 'consol-panel',   'btn-yellow', 'btn-active-yellow', 'badge-active-yellow'),
+          ] %}
+
+          {% for stype, icon, label, panel_cls, btn_cls, active_cls, badge_cls in configs %}
+            {% set s = namespace(row=none) %}
+            {% for row in strategies %}
+              {% if row.strategy_type == stype %}{% set s.row = row %}{% endif %}
+            {% endfor %}
+            {% if s.row %}
+            {% set r = s.row %}
+
+            <div class="strategy-panel {{ panel_cls }} {% if r.is_active %}active-panel{% endif %}">
+
+              <!-- PANEL HEADER -->
+              <div class="sp-header">
+                <div class="sp-title">{{ icon }} {{ label }}</div>
+                <div class="sp-badges">
+                  {% if r.is_active %}<span class="sp-badge {{ badge_cls }}">ACTIVE</span>{% endif %}
+                  {% if r.user_overridden %}<span class="sp-badge badge-custom">CUSTOM</span>{% endif %}
+                  {% set st = r.status %}
+                  {% if st == 'Monitoring...' %}<span class="sp-status sp-status-monitoring">ON</span>
+                  {% elif 'T1 HIT' in st %}<span class="sp-status sp-status-t1">T1</span>
+                  {% elif 'FULL EXIT' in st %}<span class="sp-status sp-status-exit">EXIT</span>
+                  {% elif 'SL' in st %}<span class="sp-status sp-status-sl">SL</span>
+                  {% else %}<span class="sp-status sp-status-pending">—</span>{% endif %}
+                </div>
+              </div>
+
+              <!-- LEVELS: VIEW MODE -->
+              <div class="sp-levels" id="view-{{ r.id }}">
+                <div class="level-view">
+                  <div class="sp-level-row">
+                    <span class="sp-level-label">T1</span>
+                    <div style="text-align:right">
+                      <span class="val-t1">{{ "%.2f"|format(r.t1) if r.t1 else '—' }}</span>
+                      {% if r.t1_pct %}<span style="font-size:10px;color:var(--text-dim);margin-left:4px">({{ r.t1_pct }}%)</span>{% endif %}
+                    </div>
+                  </div>
+                  <div class="sp-level-row">
+                    <span class="sp-level-label">T2</span>
+                    <div style="text-align:right">
+                      <span class="val-t2">{{ "%.2f"|format(r.t2) if r.t2 else '—' }}</span>
+                      {% if r.t2_pct %}<span style="font-size:10px;color:var(--text-dim);margin-left:4px">({{ r.t2_pct }}%)</span>{% endif %}
+                    </div>
+                  </div>
+                  <div class="sp-level-row">
+                    <span class="sp-level-label">SL1</span>
+                    <div style="text-align:right">
+                      <span class="val-sl1">{{ "%.2f"|format(r.sl1) if r.sl1 else '—' }}</span>
+                      {% if r.sl1_pct %}<span style="font-size:10px;color:var(--text-dim);margin-left:4px">({{ r.sl1_pct }}%)</span>{% endif %}
+                    </div>
+                  </div>
+                  <div class="sp-level-row">
+                    <span class="sp-level-label">SL2</span>
+                    <div style="text-align:right">
+                      <span class="val-sl2">{{ "%.2f"|format(r.sl2) if r.sl2 else '—' }}</span>
+                      {% if r.sl2_pct %}<span style="font-size:10px;color:var(--text-dim);margin-left:4px">({{ r.sl2_pct }}%)</span>{% endif %}
+                    </div>
+                  </div>
+                  {% if r.user_overridden and r.engine_t1 %}
+                  <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">
+                    <div class="engine-hint">Engine: T1 {{ "%.2f"|format(r.engine_t1) }} · SL1 {{ "%.2f"|format(r.engine_sl1) }}</div>
+                  </div>
+                  {% endif %}
+                </div>
+              </div>
+
+              <!-- LEVELS: EDIT MODE -->
+              <div class="sp-levels" id="edit-{{ r.id }}" style="display:none">
+                <form method="POST" action="/strategy/update_levels">
+                  <input type="hidden" name="strategy_id" value="{{ r.id }}">
+                  <div class="edit-field">
+                    <label>T1 — Target 1</label>
+                    <input type="number" name="t1" value="{{ r.t1 or '' }}" step="0.01" placeholder="{{ r.engine_t1 or '' }}">
+                    {% if r.engine_t1 %}<div class="edit-hint">Engine suggests: {{ "%.2f"|format(r.engine_t1) }}</div>{% endif %}
+                  </div>
+                  <div class="edit-field">
+                    <label>T2 — Target 2</label>
+                    <input type="number" name="t2" value="{{ r.t2 or '' }}" step="0.01" placeholder="{{ r.engine_t2 or '' }}">
+                    {% if r.engine_t2 %}<div class="edit-hint">Engine suggests: {{ "%.2f"|format(r.engine_t2) }}</div>{% endif %}
+                  </div>
+                  <div class="edit-field">
+                    <label>SL1 — Stop Loss 1</label>
+                    <input type="number" name="sl1" value="{{ r.sl1 or '' }}" step="0.01" placeholder="{{ r.engine_sl1 or '' }}">
+                    {% if r.engine_sl1 %}<div class="edit-hint">Engine suggests: {{ "%.2f"|format(r.engine_sl1) }}</div>{% endif %}
+                  </div>
+                  <div class="edit-field">
+                    <label>SL2 — Stop Loss 2</label>
+                    <input type="number" name="sl2" value="{{ r.sl2 or '' }}" step="0.01" placeholder="{{ r.engine_sl2 or '' }}">
+                    {% if r.engine_sl2 %}<div class="edit-hint">Engine suggests: {{ "%.2f"|format(r.engine_sl2) }}</div>{% endif %}
+                  </div>
+                  <div style="display:flex;gap:6px;margin-top:8px">
+                    <button type="submit" class="btn-sp btn-green" style="flex:2">💾 SAVE</button>
+                    <button type="button" class="btn-sp btn-dim" onclick="toggleEdit('{{ r.id }}',false)" style="flex:1">CANCEL</button>
+                  </div>
+                </form>
+              </div>
+
+              <!-- NOTIFICATION TOGGLES -->
+              <div class="sp-toggles">
+                <div class="toggle-label">Notifications</div>
+                <form method="POST" action="/strategy/toggles" id="toggle-form-{{ r.id }}">
+                  <input type="hidden" name="strategy_id" value="{{ r.id }}">
+                  <div class="toggle-row"><span>Price Targets</span>
+                    <label class="toggle-switch"><input type="checkbox" name="notify_price_targets" {% if r.notify_price_targets %}checked{% endif %} onchange="submitToggle('{{ r.id }}')"><span class="toggle-slider"></span></label></div>
+                  <div class="toggle-row"><span>Stop Loss</span>
+                    <label class="toggle-switch"><input type="checkbox" name="notify_stop_loss" {% if r.notify_stop_loss %}checked{% endif %} onchange="submitToggle('{{ r.id }}')"><span class="toggle-slider"></span></label></div>
+                  <div class="toggle-row"><span>MA Crossover</span>
+                    <label class="toggle-switch"><input type="checkbox" name="notify_ma_crossover" {% if r.notify_ma_crossover %}checked{% endif %} onchange="submitToggle('{{ r.id }}')"><span class="toggle-slider"></span></label></div>
+                  <div class="toggle-row"><span>Trend Break</span>
+                    <label class="toggle-switch"><input type="checkbox" name="notify_trend_break" {% if r.notify_trend_break %}checked{% endif %} onchange="submitToggle('{{ r.id }}')"><span class="toggle-slider"></span></label></div>
+                  <div class="toggle-row"><span>Consol. Break</span>
+                    <label class="toggle-switch"><input type="checkbox" name="notify_consolidation_break" {% if r.notify_consolidation_break %}checked{% endif %} onchange="submitToggle('{{ r.id }}')"><span class="toggle-slider"></span></label></div>
+                </form>
+              </div>
+
+              <!-- ACTIONS -->
+              <div class="sp-actions">
+                <!-- ACTIVATE -->
+                <form method="POST" action="/strategy/activate" style="flex:1;min-width:0">
+                  <input type="hidden" name="watchlist_id" value="{{ stock.id }}">
+                  <input type="hidden" name="strategy_type" value="{{ stype }}">
+                  <button type="submit" class="btn-sp {% if r.is_active %}{{ active_cls }}{% else %}{{ btn_cls }}{% endif %}" style="width:100%">
+                    {% if r.is_active %}✓ ACTIVE{% else %}ACTIVATE{% endif %}
+                  </button>
+                </form>
+                <!-- EDIT LEVELS -->
+                <button type="button" class="btn-sp btn-dim" onclick="toggleEdit('{{ r.id }}',true)" id="editbtn-{{ r.id }}">✏️</button>
+                <!-- RESET TO ENGINE -->
+                {% if r.user_overridden %}
+                <form method="POST" action="/strategy/reset_levels">
+                  <input type="hidden" name="strategy_id" value="{{ r.id }}">
+                  <button type="submit" class="btn-sp btn-dim" title="Reset to engine suggestion">↺</button>
+                </form>
+                {% endif %}
+              </div>
+
+            </div>
+            {% endif %}
+          {% endfor %}
+
+        </div>
+
+        <div class="stock-footer">
+          <form method="POST" action="/refresh_stock/{{ stock.id }}" style="display:inline">
+            <button type="submit" class="btn-sm">↺ REFRESH ENGINE</button>
+          </form>
+          <form method="POST" action="/delete_stock/{{ stock.id }}" style="display:inline" onsubmit="return confirm('Remove {{ stock.company_name }}?')">
+            <button type="submit" class="btn-sm danger">✕ REMOVE</button>
+          </form>
+        </div>
+      </div>
+
+    </div>
+    {% endfor %}
+
+  {% else %}
+  <div class="empty-state">
+    <div class="icon">📭</div>
+    No stocks yet. Add a ticker above to get started.
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- SIDEBAR -->
+<div class="side-col">
+  <div class="side-section">
+    <div class="side-title">Overview</div>
+    <div class="stats-grid">
+      <div class="stat-card"><div class="stat-val accent">{{ stocks|length }}</div><div class="stat-lbl">Stocks</div></div>
+      <div class="stat-card"><div class="stat-val green">{{ stocks|length * 3 }}</div><div class="stat-lbl">Strategies</div></div>
+    </div>
+  </div>
+
+  <div class="side-section">
+    <div class="side-title">Engine Status</div>
+    <div class="engine-box">
+      <div style="font-size:12px;margin-bottom:10px">
+        <span class="live-dot"></span><span style="color:#fff">Alert Engine</span>
+        <span style="color:var(--green);font-size:11px;float:right">RUNNING</span>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);line-height:2">
+        ↻ MA state change only<br>
+        🔹 Price targets (active strategy)<br>
+        🔹 Deviation warnings (&gt;5%)<br>
+        📧 {{ user.email }}<br>
+        💬 {% if user.telegram_chat_id %}Connected{% else %}<span style="color:var(--red)">Not set</span>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="side-section">
+    <div class="side-title">How It Works</div>
+    <div style="font-size:11px;color:var(--text-dim);line-height:1.9;background:var(--card);border:1px solid var(--border);padding:14px">
+      <span style="color:#fff">1.</span> Enter entry price → engine auto-fills T1/T2/SL<br>
+      <span style="color:#fff">2.</span> Edit any level freely with ✏️<br>
+      <span style="color:#fff">3.</span> Activate one strategy per stock<br>
+      <span style="color:#fff">4.</span> If your levels drift &gt;5% from engine → you get a Telegram warning<br>
+      <span style="color:#fff">5.</span> MA state changes fire alerts automatically
+    </div>
+  </div>
+
+  <div class="side-section">
+    <div class="side-title">Recent Alerts</div>
+    {% if logs %}
+      {% for log in logs[:8] %}
+      <div class="log-item">
+        <span class="log-ticker">{{ log.ticker }}</span>
+        <span style="font-size:10px;color:var(--text-dim);margin-left:6px">{{ log.alert_type }}</span>
+        <div class="log-time">{{ log.sent_at[:16] }}</div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div style="color:var(--text-dim);font-size:12px;padding:16px 0">No alerts yet.</div>
+    {% endif %}
+  </div>
+</div>
+</div>
+
+<script>
+// ── CARD TOGGLE ───────────────────────────────────────
+function toggleCard(id) {
+  const card = document.getElementById('card-' + id);
+  const body = document.getElementById('body-' + id);
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  card.classList.toggle('open', !open);
+}
+
+// ── TOGGLE EDIT MODE ──────────────────────────────────
+function toggleEdit(stratId, show) {
+  document.getElementById('view-' + stratId).style.display = show ? 'none' : 'block';
+  document.getElementById('edit-' + stratId).style.display = show ? 'block' : 'none';
+  const btn = document.getElementById('editbtn-' + stratId);
+  if (btn) btn.style.display = show ? 'none' : '';
+}
+
+// ── TOGGLE SUBMIT ─────────────────────────────────────
+function submitToggle(stratId) {
+  setTimeout(() => {
+    document.getElementById('toggle-form-' + stratId).submit();
+  }, 200);
+}
+
+// ── LIVE MA HINT ON TICKER INPUT ──────────────────────
+let maTimer = null;
+
+document.getElementById('tickerInput').addEventListener('input', function() {
+  clearTimeout(maTimer);
+  const ticker = this.value.trim();
+  const hint   = document.getElementById('maHint');
+
+  if (ticker.length < 3) {
+    hint.style.display = 'none';
+    return;
+  }
+
+  maTimer = setTimeout(() => fetchLiveMA(ticker), 800);
+});
+
+function fetchLiveMA(ticker) {
+  const hint     = document.getElementById('maHint');
+  const hintRow  = document.getElementById('maHintRow');
+  const hintNote = document.getElementById('maHintNote');
+
+  hint.style.display = 'flex';
+  hintRow.innerHTML  = '<span style="color:var(--text-dim);font-size:11px">Fetching live MAs...</span>';
+  hintNote.innerHTML = '';
+
+  fetch('/api/live_ma?ticker=' + encodeURIComponent(ticker))
+    .then(r => r.json())
+    .then(data => {
+      if (data.error || !data.price) {
+        hintRow.innerHTML = '<span style="color:var(--red);font-size:11px">Could not fetch data for this ticker</span>';
+        return;
+      }
+
+      const stateClass = {
+        uptrend: 'pill-uptrend', downtrend: 'pill-downtrend',
+        consolidation: 'pill-consolidation'
+      }[data.state] || 'pill-unknown';
+
+      const stateLabel = {
+        uptrend: '📈 UPTREND', downtrend: '📉 DOWNTREND',
+        consolidation: '➡️ CONSOLIDATION'
+      }[data.state] || 'UNKNOWN';
+
+      hintRow.innerHTML = `
+        <span class="ma-hint-item">CMP <span>${data.price}</span></span>
+        <span class="ma-hint-item">10MA <span>${data.ma10 || '—'}</span></span>
+        <span class="ma-hint-item">20MA <span>${data.ma20 || '—'}</span></span>
+        <span class="ma-hint-item">50MA <span>${data.ma50 || '—'}</span></span>
+        ${data.rsi ? `<span class="ma-hint-item" style="color:${data.rsi < 30 ? 'var(--red)' : data.rsi < 50 ? 'var(--yellow)' : 'var(--green)'}">RSI <span>${data.rsi} ${data.rsi_label !== 'OK' ? '⚠️' : '✓'}</span></span>` : ''}
+        ${data.adx ? `<span class="ma-hint-item">ADX <span>${data.adx} (${data.adx_label})</span></span>` : ''}
+        ${data.volume_ratio ? `<span class="ma-hint-item" style="color:${data.volume_ratio >= 1.5 ? 'var(--green)' : 'var(--text-dim)'}">Vol <span>${data.volume_ratio}x ${data.volume_ratio >= 1.5 ? '✓' : ''}</span></span>` : ''}
+        <span class="ma-state-pill ${stateClass}">${stateLabel}</span>
+      `;
+
+      const suggestions = {
+        uptrend:       { t1: '+5%', t2: '+10%', sl: '-3%' },
+        downtrend:     { t1: '-5%', t2: '-10%', sl: '+3%' },
+        consolidation: { t1: '+3%', t2: '+6%',  sl: '-2%' },
+      };
+      const s = suggestions[data.state];
+      if (s) {
+        hintNote.innerHTML = `Engine will suggest: <span>T1 ${s.t1}</span> · <span>T2 ${s.t2}</span> · <span>SL ${s.sl}</span> — you can edit these after adding.`;
+      }
+
+      // Auto-fill entry price if CMP is available and field is empty
+      const entryField = document.getElementById('entryPriceInput');
+      if (data.price && !entryField.value) {
+        entryField.value  = data.price;
+        entryField.style.borderColor = 'var(--accent)';
+        setTimeout(() => entryField.style.borderColor = '', 2000);
+      }
+    })
+    .catch(() => {
+      hintRow.innerHTML = '<span style="color:var(--red);font-size:11px">Fetch failed. Check ticker format.</span>';
+    });
+}
+</script>
+</body>
+</html>
