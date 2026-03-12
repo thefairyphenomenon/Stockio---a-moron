@@ -1,0 +1,1128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StockHub — Planner</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Clash+Display:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ── RESET + TOKENS (identical to dashboard) ─────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #06090f; --surface: #0c1219; --card: #0f1820; --card2: #111e2a;
+  --border: #1c2d3e; --border2: #243548;
+  --accent: #00d4ff; --green: #00ff88; --red: #ff3b5c;
+  --yellow: #ffcc00; --purple: #b060ff; --orange: #ff6b35;
+  --text: #b8c8d8; --text-dim: #4a6070; --text-bright: #e8f4ff;
+  --mono: 'DM Mono', monospace; --display: 'Clash Display', sans-serif;
+  --sidebar-w: 240px;
+}
+body { background: var(--bg); color: var(--text); font-family: var(--mono); min-height: 100vh; overflow-x: hidden; }
+button { cursor: pointer; font-family: var(--mono); }
+input, textarea, select { font-family: var(--mono); }
+a { text-decoration: none; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* ── NAV ─────────────────────────────────────────── */
+nav {
+  background: var(--surface); border-bottom: 1px solid var(--border);
+  padding: 0 24px; display: flex; align-items: center;
+  justify-content: space-between; height: 52px;
+  position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+}
+.nav-left  { display: flex; align-items: center; gap: 16px; }
+.nav-logo  { display: flex; align-items: center; gap: 8px; }
+.nav-logo-icon { width: 26px; height: 26px; border: 1.5px solid var(--accent); display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.nav-logo-text { font-family: var(--display); font-size: 15px; font-weight: 700; color: #fff; }
+.nav-sep { width: 1px; height: 20px; background: var(--border); }
+.nav-page { font-size: 12px; color: var(--text-dim); }
+.nav-right { display: flex; align-items: center; gap: 10px; }
+.nav-link { font-size: 11px; color: var(--text-dim); padding: 5px 10px; border: 1px solid var(--border); transition: all 0.2s; }
+.nav-link:hover, .nav-link.active { border-color: var(--accent); color: var(--accent); }
+.nav-user { font-size: 11px; color: var(--text-dim); }
+.nav-user span { color: var(--text-bright); }
+
+/* ── APP SHELL ───────────────────────────────────── */
+.app-shell { display: flex; padding-top: 52px; min-height: 100vh; }
+
+/* ── LEFT SIDEBAR (Portfolio list) ──────────────── */
+.sidebar {
+  width: var(--sidebar-w); flex-shrink: 0;
+  background: var(--surface); border-right: 1px solid var(--border);
+  height: calc(100vh - 52px); position: fixed; top: 52px; left: 0;
+  overflow-y: auto; display: flex; flex-direction: column;
+}
+.sidebar-section { padding: 16px 14px 8px; }
+.sidebar-label { font-size: 10px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+.sidebar-label button { background: none; border: none; color: var(--text-dim); font-size: 16px; line-height: 1; padding: 0 2px; transition: color 0.2s; }
+.sidebar-label button:hover { color: var(--accent); }
+
+.portfolio-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 0; margin-bottom: 2px;
+  cursor: pointer; transition: background 0.15s; border-left: 2px solid transparent;
+  font-size: 12px; color: var(--text);
+}
+.portfolio-item:hover { background: rgba(0,212,255,0.05); }
+.portfolio-item.active { background: rgba(0,212,255,0.08); border-left-color: var(--accent); color: var(--text-bright); }
+.portfolio-item .p-icon { font-size: 14px; flex-shrink: 0; }
+.portfolio-item .p-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.portfolio-item .p-count { font-size: 10px; color: var(--text-dim); background: var(--bg); padding: 1px 5px; border-radius: 8px; }
+
+.sidebar-footer { margin-top: auto; padding: 12px 14px; border-top: 1px solid var(--border); }
+.sidebar-footer a { display: block; font-size: 11px; color: var(--text-dim); padding: 6px 0; transition: color 0.2s; }
+.sidebar-footer a:hover { color: var(--accent); }
+
+/* ── MAIN WORKSPACE ──────────────────────────────── */
+.workspace {
+  flex: 1; margin-left: var(--sidebar-w);
+  min-height: calc(100vh - 52px);
+  display: flex; flex-direction: column;
+}
+
+/* ── PORTFOLIO HEADER ────────────────────────────── */
+.portfolio-header {
+  padding: 24px 28px 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.portfolio-header-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 16px; }
+.portfolio-title-row { display: flex; align-items: center; gap: 12px; }
+.portfolio-title-icon { font-size: 28px; }
+.portfolio-meta h1 { font-family: var(--display); font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+.portfolio-meta p { font-size: 11px; color: var(--text-dim); }
+.header-actions { display: flex; gap: 8px; align-items: center; }
+.btn-ghost { background: none; border: 1px solid var(--border); color: var(--text-dim); font-size: 11px; padding: 6px 12px; transition: all 0.2s; }
+.btn-ghost:hover { border-color: var(--border2); color: var(--text); }
+.btn-primary { background: var(--accent); border: none; color: #000; font-family: var(--display); font-size: 11px; font-weight: 700; padding: 6px 14px; transition: opacity 0.2s; }
+.btn-primary:hover { opacity: 0.85; }
+.btn-danger { background: none; border: 1px solid rgba(255,59,92,0.3); color: var(--red); font-size: 11px; padding: 6px 12px; transition: all 0.2s; }
+.btn-danger:hover { background: rgba(255,59,92,0.1); }
+
+.portfolio-tabs { display: flex; gap: 0; margin-top: 4px; }
+.portfolio-tab { font-size: 11px; padding: 8px 16px; color: var(--text-dim); border-bottom: 2px solid transparent; cursor: pointer; transition: all 0.2s; background: none; border-top: none; border-left: none; border-right: none; }
+.portfolio-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.portfolio-tab:hover:not(.active) { color: var(--text); }
+
+/* ── ENGINE SUGGESTIONS BANNER ───────────────────── */
+.suggestions-banner {
+  margin: 16px 28px 0;
+  background: rgba(255, 204, 0, 0.06);
+  border: 1px solid rgba(255, 204, 0, 0.2);
+  padding: 10px 14px;
+}
+.suggestions-banner-title { font-size: 10px; color: var(--yellow); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 8px; }
+.suggestion-item { display: flex; align-items: center; gap: 10px; font-size: 11px; padding: 4px 0; color: var(--text); }
+.suggestion-item .s-ticker { color: var(--accent); font-weight: 500; min-width: 60px; }
+.suggestion-item .s-arrow { color: var(--yellow); }
+.suggestion-item .s-note { color: var(--text-dim); flex: 1; }
+.suggestion-item .s-apply { background: none; border: 1px solid rgba(255,204,0,0.3); color: var(--yellow); font-size: 10px; padding: 2px 8px; transition: all 0.2s; }
+.suggestion-item .s-apply:hover { background: rgba(255,204,0,0.1); }
+.suggestion-item .s-dismiss { background: none; border: none; color: var(--text-dim); font-size: 11px; padding: 2px 4px; }
+
+/* ── KANBAN BOARD ────────────────────────────────── */
+.kanban-wrap { flex: 1; padding: 20px 28px 40px; overflow-x: auto; }
+.kanban-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; min-width: 800px; }
+
+.kanban-column {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 2px solid var(--col-color);
+  display: flex; flex-direction: column; min-height: 400px;
+}
+.column-uptrend     { --col-color: var(--green); }
+.column-consolidation { --col-color: var(--yellow); }
+.column-downtrend   { --col-color: var(--red); }
+
+.column-header { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.column-title { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 500; color: var(--col-color); letter-spacing: 1.5px; text-transform: uppercase; }
+.column-count { font-size: 10px; color: var(--text-dim); background: var(--bg); padding: 2px 7px; border-radius: 10px; }
+.column-body { padding: 10px; flex: 1; display: flex; flex-direction: column; gap: 8px; transition: background 0.15s; }
+.column-body.drag-over { background: rgba(0, 212, 255, 0.04); }
+
+/* ── ASSET CARD ──────────────────────────────────── */
+.asset-card {
+  background: var(--card); border: 1px solid var(--border);
+  padding: 12px; cursor: grab; transition: all 0.2s;
+  position: relative; user-select: none;
+}
+.asset-card:hover { border-color: var(--border2); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.3); }
+.asset-card.dragging { opacity: 0.4; cursor: grabbing; }
+
+.card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 8px; }
+.card-ticker { font-family: var(--display); font-size: 15px; font-weight: 700; color: #fff; }
+.card-company { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.card-price-block { text-align: right; }
+.card-price { font-size: 14px; color: var(--text-bright); font-weight: 500; }
+.card-pnl { font-size: 10px; margin-top: 2px; }
+.card-pnl.pos { color: var(--green); }
+.card-pnl.neg { color: var(--red); }
+.card-pnl.neu { color: var(--text-dim); }
+
+/* Mini chart placeholder */
+.mini-chart { height: 36px; background: var(--surface); border: 1px solid var(--border); margin-bottom: 8px; position: relative; overflow: hidden; display: flex; align-items: center; }
+.mini-chart canvas { width: 100% !important; height: 36px !important; }
+.mini-chart-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 9px; color: var(--text-dim); }
+
+.card-badges { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.badge { font-size: 9px; padding: 2px 6px; letter-spacing: 1px; text-transform: uppercase; border: 1px solid; }
+.badge-uptrend     { color: var(--green);  border-color: rgba(0,255,136,0.3); background: rgba(0,255,136,0.07); }
+.badge-downtrend   { color: var(--red);    border-color: rgba(255,59,92,0.3);  background: rgba(255,59,92,0.07); }
+.badge-consolidation { color: var(--yellow); border-color: rgba(255,204,0,0.3); background: rgba(255,204,0,0.07); }
+.badge-unknown     { color: var(--text-dim); border-color: var(--border); }
+.badge-risk { color: var(--red); border-color: rgba(255,59,92,0.3); background: rgba(255,59,92,0.07); }
+
+.card-indicators { display: flex; gap: 12px; font-size: 10px; color: var(--text-dim); margin-bottom: 8px; flex-wrap: wrap; }
+.ci-item span { font-weight: 500; }
+.ci-rsi-ok   { color: var(--green); }
+.ci-rsi-weak { color: var(--yellow); }
+.ci-rsi-exit { color: var(--red); }
+
+.card-remark { font-size: 10px; color: var(--text-dim); padding: 6px 8px; background: var(--surface); border-left: 2px solid var(--border); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic; }
+
+.card-footer { display: flex; align-items: center; justify-content: space-between; }
+.card-days { font-size: 9px; color: var(--text-dim); }
+.card-actions { display: flex; gap: 4px; }
+.card-btn { background: none; border: 1px solid var(--border); color: var(--text-dim); font-size: 9px; padding: 3px 7px; transition: all 0.2s; letter-spacing: 0.5px; }
+.card-btn:hover { border-color: var(--accent); color: var(--accent); }
+.card-btn.danger:hover { border-color: var(--red); color: var(--red); }
+
+/* ── EMPTY COLUMN ────────────────────────────────── */
+.column-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; }
+.column-empty-icon { font-size: 24px; opacity: 0.3; }
+.column-empty-text { font-size: 10px; color: var(--text-dim); text-align: center; }
+
+/* ── EMPTY STATE ─────────────────────────────────── */
+.empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 40px; text-align: center; gap: 16px; }
+.empty-state-icon { font-size: 48px; opacity: 0.25; }
+.empty-state h2 { font-family: var(--display); font-size: 20px; font-weight: 700; color: var(--text-bright); }
+.empty-state p { font-size: 12px; color: var(--text-dim); max-width: 340px; line-height: 1.7; }
+
+/* ── RIGHT PANEL (AI + news — slides in) ─────────── */
+.right-panel {
+  width: 300px; flex-shrink: 0;
+  background: var(--surface); border-left: 1px solid var(--border);
+  height: calc(100vh - 52px); position: fixed; top: 52px; right: 0;
+  overflow-y: auto; transform: translateX(100%); transition: transform 0.3s ease;
+  z-index: 150;
+}
+.right-panel.open { transform: translateX(0); }
+.right-panel-header { padding: 14px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.right-panel-title { font-size: 11px; letter-spacing: 2px; color: var(--text-dim); text-transform: uppercase; }
+.right-panel-close { background: none; border: none; color: var(--text-dim); font-size: 16px; }
+.right-panel-close:hover { color: var(--text); }
+
+/* AI Avatar */
+.ai-avatar-section { padding: 16px; border-bottom: 1px solid var(--border); }
+.ai-avatar { display: flex; gap: 10px; align-items: flex-start; }
+.ai-face { width: 34px; height: 34px; background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(176,96,255,0.2)); border: 1px solid rgba(0,212,255,0.4); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; flex-shrink: 0; }
+.ai-bubble { background: var(--card); border: 1px solid var(--border); padding: 10px 12px; font-size: 11px; color: var(--text); line-height: 1.6; position: relative; flex: 1; }
+.ai-bubble::before { content: ''; position: absolute; left: -6px; top: 8px; width: 0; height: 0; border-top: 5px solid transparent; border-bottom: 5px solid transparent; border-right: 6px solid var(--border); }
+.ai-bubble-inner::before { content: ''; position: absolute; left: -5px; top: 9px; width: 0; height: 0; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-right: 5px solid var(--card); }
+.ai-ticker-select { width: 100%; margin-top: 8px; background: var(--surface); border: 1px solid var(--border); color: var(--text); font-size: 11px; padding: 6px 8px; outline: none; }
+.ai-refresh { margin-top: 6px; width: 100%; background: none; border: 1px solid rgba(0,212,255,0.3); color: var(--accent); font-size: 10px; padding: 5px; transition: all 0.2s; }
+.ai-refresh:hover { background: rgba(0,212,255,0.08); }
+.ai-loading { color: var(--text-dim); font-style: italic; }
+
+/* News Globe */
+.news-section { padding: 14px 16px; }
+.news-section-title { font-size: 10px; color: var(--text-dim); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+.globe-container { width: 100%; height: 180px; background: var(--card); border: 1px solid var(--border); margin-bottom: 12px; position: relative; overflow: hidden; }
+#globe-canvas { width: 100%; height: 100%; }
+.globe-placeholder { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+.globe-placeholder .globe-icon { font-size: 36px; opacity: 0.3; }
+.globe-placeholder p { font-size: 10px; color: var(--text-dim); }
+
+.region-tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+.region-tab { font-size: 9px; padding: 3px 8px; background: none; border: 1px solid var(--border); color: var(--text-dim); letter-spacing: 0.5px; transition: all 0.2s; }
+.region-tab.active, .region-tab:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,0.05); }
+
+.news-items { display: flex; flex-direction: column; gap: 6px; }
+.news-item { padding: 8px; background: var(--card); border: 1px solid var(--border); border-left: 2px solid var(--accent); transition: border-color 0.2s; }
+.news-item:hover { border-color: var(--border2); }
+.news-item a { color: var(--text); font-size: 11px; line-height: 1.5; display: block; }
+.news-item a:hover { color: var(--accent); }
+.news-item-time { font-size: 9px; color: var(--text-dim); margin-top: 4px; }
+
+/* ── MODALS ──────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  z-index: 400; display: flex; align-items: center; justify-content: center;
+  padding: 20px; backdrop-filter: blur(2px);
+  opacity: 0; pointer-events: none; transition: opacity 0.2s;
+}
+.modal-overlay.open { opacity: 1; pointer-events: all; }
+.modal {
+  background: var(--surface); border: 1px solid var(--border2);
+  width: 100%; max-width: 480px; max-height: 80vh; overflow-y: auto;
+  transform: translateY(8px); transition: transform 0.2s;
+}
+.modal-overlay.open .modal { transform: translateY(0); }
+.modal-header { padding: 16px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.modal-title { font-family: var(--display); font-size: 14px; font-weight: 700; color: #fff; }
+.modal-close { background: none; border: none; color: var(--text-dim); font-size: 18px; }
+.modal-close:hover { color: var(--text); }
+.modal-body { padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.field label { font-size: 10px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; display: block; margin-bottom: 5px; }
+.field input, .field textarea, .field select {
+  width: 100%; background: var(--card); border: 1px solid var(--border);
+  color: #fff; font-family: var(--mono); font-size: 12px; padding: 8px 10px;
+  outline: none; transition: border-color 0.2s; resize: vertical;
+}
+.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); }
+.field textarea { min-height: 60px; }
+.color-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.color-opt { width: 22px; height: 22px; border: 2px solid transparent; cursor: pointer; transition: transform 0.15s; }
+.color-opt.selected, .color-opt:hover { transform: scale(1.2); border-color: #fff; }
+.icon-row { display: flex; gap: 6px; flex-wrap: wrap; }
+.icon-opt { font-size: 18px; padding: 4px 6px; cursor: pointer; background: var(--card); border: 1px solid var(--border); transition: border-color 0.15s; }
+.icon-opt.selected, .icon-opt:hover { border-color: var(--accent); }
+.modal-footer { padding: 14px 18px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+/* Wide card detail modal */
+.modal.modal-wide { max-width: 640px; }
+.card-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.card-detail-grid .span2 { grid-column: span 2; }
+.remarks-list { display: flex; flex-direction: column; gap: 6px; max-height: 160px; overflow-y: auto; }
+.remark-row { font-size: 11px; padding: 6px 8px; background: var(--card); border-left: 2px solid var(--border); color: var(--text); }
+.remark-row .remark-ts { font-size: 9px; color: var(--text-dim); margin-top: 2px; }
+
+/* ── CHART MODAL ─────────────────────────────────── */
+.chart-modal-body { padding: 14px; }
+#expanded-chart { width: 100%; height: 320px; }
+
+/* ── FLOATING TOGGLE ─────────────────────────────── */
+.panel-toggle {
+  position: fixed; right: 14px; bottom: 24px; z-index: 160;
+  background: var(--card); border: 1px solid var(--border);
+  color: var(--text); font-size: 18px; width: 42px; height: 42px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s; box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+}
+.panel-toggle:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── MISC UTILS ──────────────────────────────────── */
+.divider { border: none; border-top: 1px solid var(--border); }
+.tag { font-size: 9px; padding: 2px 6px; background: rgba(0,212,255,0.08); border: 1px solid rgba(0,212,255,0.2); color: var(--accent); letter-spacing: 1px; }
+.spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.toast-container { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 500; display: flex; flex-direction: column; gap: 6px; pointer-events: none; }
+.toast { background: var(--card); border: 1px solid var(--border); padding: 8px 16px; font-size: 11px; color: var(--text-bright); animation: toastIn 0.3s ease; }
+.toast.success { border-color: rgba(0,255,136,0.4); }
+.toast.error   { border-color: rgba(255,59,92,0.4); color: var(--red); }
+@keyframes toastIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+
+/* Workspace resize when panel open */
+.workspace.panel-open { margin-right: 300px; }
+
+/* Responsive tweaks */
+@media (max-width: 900px) {
+  .sidebar { width: 200px; --sidebar-w: 200px; }
+  .kanban-board { grid-template-columns: repeat(3, 260px); }
+}
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="nav-left">
+    <a class="nav-logo" href="/dashboard">
+      <div class="nav-logo-icon">◈</div>
+      <span class="nav-logo-text">StockHub</span>
+    </a>
+    <div class="nav-sep"></div>
+    <span class="nav-page">Planner</span>
+  </div>
+  <div class="nav-right">
+    <a class="nav-link" href="/dashboard">Dashboard</a>
+    {% if user and user.is_admin %}<a class="nav-link" href="/admin">Admin</a>{% endif %}
+    <span class="nav-user">{{ user.name if user else '' }}</span>
+    <a class="nav-link" href="/logout">Logout</a>
+  </div>
+</nav>
+
+<!-- APP SHELL -->
+<div class="app-shell" id="appShell">
+
+  <!-- LEFT SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-section">
+      <div class="sidebar-label">
+        Portfolios
+        <button title="New portfolio" id="btnNewPortfolio">＋</button>
+      </div>
+
+      {% if portfolios %}
+        {% for p in portfolios %}
+        <a class="portfolio-item {% if active and active.id == p.id %}active{% endif %}"
+           href="/planner?p={{ p.id }}">
+          <span class="p-icon">{{ p.icon or '📊' }}</span>
+          <span class="p-name">{{ p.name }}</span>
+          <span class="p-count">{{ p.asset_count or 0 }}</span>
+        </a>
+        {% endfor %}
+      {% else %}
+        <div style="font-size:11px;color:var(--text-dim);padding:8px 4px;">No portfolios yet.<br>Click + to create one.</div>
+      {% endif %}
+    </div>
+
+    <div class="sidebar-footer">
+      <a href="/dashboard">← Dashboard</a>
+      <a href="/planner" id="sideNewPortfolio">+ New portfolio</a>
+    </div>
+  </aside>
+
+  <!-- WORKSPACE -->
+  <main class="workspace" id="workspace">
+
+    {% if active %}
+      <!-- PORTFOLIO HEADER -->
+      <div class="portfolio-header">
+        <div class="portfolio-header-top">
+          <div class="portfolio-title-row">
+            <div class="portfolio-title-icon">{{ active.icon or '📊' }}</div>
+            <div class="portfolio-meta">
+              <h1>{{ active.name }}</h1>
+              <p>{{ active.description or 'Portfolio workspace' }}</p>
+            </div>
+          </div>
+          <div class="header-actions">
+            <button class="btn-ghost" id="btnAddAsset">+ Add Asset</button>
+            <button class="btn-ghost" id="btnEditPortfolio">Edit</button>
+            <button class="btn-danger" id="btnDeletePortfolio"
+                    data-pid="{{ active.id }}">Delete</button>
+          </div>
+        </div>
+        <div class="portfolio-tabs">
+          <button class="portfolio-tab active">Kanban</button>
+        </div>
+      </div>
+
+      <!-- ENGINE SUGGESTIONS BANNER -->
+      {% if suggestions %}
+      <div class="suggestions-banner" id="suggestionsBanner">
+        <div class="suggestions-banner-title">⚡ Engine Suggestions</div>
+        {% for s in suggestions %}
+        <div class="suggestion-item"
+             data-paid="{{ s.portfolio_asset_id }}"
+             data-col="{{ s.suggested_column }}"
+             data-pid="{{ active.id }}">
+          <span class="s-ticker">{{ s.ticker }}</span>
+          <span class="s-arrow">→</span>
+          <span style="color:
+            {% if s.suggested_column == 'uptrend' %}var(--green)
+            {% elif s.suggested_column == 'downtrend' %}var(--red)
+            {% else %}var(--yellow){% endif %}">
+            {{ s.suggested_column | title }}
+          </span>
+          <span class="s-note">{{ s.engine_notes or 'trend shift detected' }}</span>
+          <button class="s-apply" onclick="applySuggestion(this)">Apply</button>
+          <button class="s-dismiss" onclick="dismissSuggestion(this)" title="Dismiss">×</button>
+        </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <!-- KANBAN BOARD -->
+      <div class="kanban-wrap">
+        <div class="kanban-board" id="kanbanBoard">
+
+          {% for col in ['uptrend', 'consolidation', 'downtrend'] %}
+          <div class="kanban-column column-{{ col }}"
+               id="col-{{ col }}"
+               data-column="{{ col }}"
+               data-pid="{{ active.id }}"
+               ondragover="onDragOver(event)"
+               ondrop="onDrop(event)"
+               ondragenter="onDragEnter(event)"
+               ondragleave="onDragLeave(event)">
+
+            <div class="column-header">
+              <div class="column-title">
+                {% if col == 'uptrend' %}📈{% elif col == 'downtrend' %}📉{% else %}➡️{% endif %}
+                {{ col | title }}
+              </div>
+              <span class="column-count" id="count-{{ col }}">{{ board[col] | length }}</span>
+            </div>
+
+            <div class="column-body" id="body-{{ col }}">
+              {% if board[col] %}
+                {% for asset in board[col] %}
+                {{ asset_card(asset, active.id) }}
+                {% endfor %}
+              {% else %}
+                <div class="column-empty" id="empty-{{ col }}">
+                  <div class="column-empty-icon">
+                    {% if col == 'uptrend' %}📈{% elif col == 'downtrend' %}📉{% else %}💤{% endif %}
+                  </div>
+                  <div class="column-empty-text">Drop assets here</div>
+                </div>
+              {% endif %}
+            </div>
+          </div>
+          {% endfor %}
+
+        </div>
+      </div>
+
+    {% else %}
+      <!-- NO PORTFOLIO SELECTED / NONE EXIST -->
+      <div class="empty-state">
+        <div class="empty-state-icon">📋</div>
+        <h2>Start your first portfolio</h2>
+        <p>Create a portfolio to organize your assets into uptrend, consolidation, and downtrend watchlists. The engine monitors them automatically.</p>
+        <button class="btn-primary" id="btnEmptyCreate" style="margin-top:8px;padding:10px 24px;font-size:13px;">Create Portfolio</button>
+      </div>
+    {% endif %}
+
+  </main><!-- /workspace -->
+
+  <!-- RIGHT PANEL -->
+  <aside class="right-panel" id="rightPanel">
+    <div class="right-panel-header">
+      <span class="right-panel-title">AI + News</span>
+      <button class="right-panel-close" id="btnClosePanel">×</button>
+    </div>
+
+    <!-- AI ASSISTANT -->
+    <div class="ai-avatar-section">
+      <div style="font-size:10px;color:var(--text-dim);letter-spacing:2px;text-transform:uppercase;margin-bottom:10px;">AI Assistant</div>
+      <div class="ai-avatar">
+        <div class="ai-face">🤖</div>
+        <div class="ai-bubble">
+          <span id="aiInsightText" class="ai-loading">Select a ticker below for an insight.</span>
+        </div>
+      </div>
+      {% if watchlist %}
+      <select class="ai-ticker-select" id="aiTickerSelect">
+        <option value="">— Select asset —</option>
+        {% for w in watchlist %}
+        <option value="{{ w.ticker }}" data-company="{{ w.company_name }}" data-id="{{ w.id }}">{{ w.ticker }} – {{ w.company_name }}</option>
+        {% endfor %}
+      </select>
+      <button class="ai-refresh" id="btnAiRefresh">Get Insight ↻</button>
+      {% endif %}
+    </div>
+
+    <!-- NEWS GLOBE -->
+    <div class="news-section">
+      <div class="news-section-title">
+        Global News
+        <span class="spinner" id="newsSpinner" style="display:none;"></span>
+      </div>
+      <div class="globe-container">
+        <div class="globe-placeholder" id="globePlaceholder">
+          <div class="globe-icon">🌐</div>
+          <p>Click a region below</p>
+        </div>
+        <canvas id="globe-canvas" style="display:none;"></canvas>
+      </div>
+      <div class="region-tabs" id="regionTabs">
+        <button class="region-tab active" data-region="global">Global</button>
+        <button class="region-tab" data-region="us">🇺🇸 US</button>
+        <button class="region-tab" data-region="india">🇮🇳 India</button>
+        <button class="region-tab" data-region="europe">🇪🇺 EU</button>
+        <button class="region-tab" data-region="asia">🇯🇵 Asia</button>
+        <button class="region-tab" data-region="crypto">₿ Crypto</button>
+      </div>
+      <div class="news-items" id="newsItems">
+        <div style="font-size:11px;color:var(--text-dim);padding:8px 0;">Open the panel and click a region to load news.</div>
+      </div>
+    </div>
+  </aside>
+
+</div><!-- /app-shell -->
+
+<!-- PANEL TOGGLE -->
+<button class="panel-toggle" id="panelToggle" title="AI + News">🌐</button>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- MODALS -->
+<!-- ════════════════════════════════════════════════ -->
+
+<!-- CREATE / EDIT PORTFOLIO MODAL -->
+<div class="modal-overlay" id="portfolioModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="portfolioModalTitle">New Portfolio</span>
+      <button class="modal-close" onclick="closeModal('portfolioModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Name</label>
+        <input type="text" id="pName" placeholder="e.g. Growth Portfolio" maxlength="60">
+      </div>
+      <div class="field">
+        <label>Description</label>
+        <textarea id="pDesc" placeholder="What's this portfolio about?" rows="2"></textarea>
+      </div>
+      <div class="field">
+        <label>Color</label>
+        <div class="color-row" id="colorRow">
+          {% for c in ['#00d4ff','#00ff88','#ff3b5c','#ffcc00','#b060ff','#ff6b35','#ffffff'] %}
+          <div class="color-opt {% if loop.first %}selected{% endif %}"
+               style="background:{{ c }};" data-color="{{ c }}"
+               onclick="selectColor(this)"></div>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="field">
+        <label>Icon</label>
+        <div class="icon-row" id="iconRow">
+          {% for ic in ['📊','📈','📉','💼','🔮','🌿','🏦','⚡','🎯','💡','🛡','🌐'] %}
+          <div class="icon-opt {% if loop.first %}selected{% endif %}"
+               data-icon="{{ ic }}" onclick="selectIcon(this)">{{ ic }}</div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('portfolioModal')">Cancel</button>
+      <button class="btn-primary" id="btnSavePortfolio" onclick="savePortfolio()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD ASSET MODAL -->
+<div class="modal-overlay" id="addAssetModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Add Asset to Portfolio</span>
+      <button class="modal-close" onclick="closeModal('addAssetModal')">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Asset (from your watchlist)</label>
+        <select id="assetPickerSelect">
+          <option value="">— Select stock —</option>
+          {% for w in watchlist %}
+          <option value="{{ w.id }}">{{ w.ticker }} — {{ w.company_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="field">
+        <label>Place in column</label>
+        <select id="assetColumnSelect">
+          <option value="consolidation">Consolidation</option>
+          <option value="uptrend">Uptrend</option>
+          <option value="downtrend">Downtrend</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Buy Price (optional)</label>
+        <input type="number" id="assetBuyPrice" placeholder="Your actual buy price" step="0.01">
+      </div>
+      <div class="field">
+        <label>Exit Expectations</label>
+        <textarea id="assetExitExp" placeholder="e.g. Exit if +40%, hold for 6 months, sell 50% at T1"></textarea>
+      </div>
+      <div class="field">
+        <label>Your Remark</label>
+        <textarea id="assetRemark" placeholder='e.g. "If NVDA rises too fast (~50%) consider partial exit"'></textarea>
+      </div>
+      <div class="field">
+        <label>Deviation Alert Threshold (%)</label>
+        <input type="number" id="assetDeviation" value="5" min="1" max="50" step="0.5">
+      </div>
+      {% if not watchlist %}
+      <div style="font-size:11px;color:var(--text-dim);padding:8px;background:var(--card);border:1px solid var(--border);">
+        Your watchlist is empty. <a href="/dashboard" style="color:var(--accent);">Add stocks first →</a>
+      </div>
+      {% endif %}
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('addAssetModal')">Cancel</button>
+      <button class="btn-primary" onclick="saveAddAsset()">Add to Portfolio</button>
+    </div>
+  </div>
+</div>
+
+<!-- CARD DETAIL MODAL -->
+<div class="modal-overlay" id="cardModal">
+  <div class="modal modal-wide">
+    <div class="modal-header">
+      <span class="modal-title" id="cardModalTitle">Asset Detail</span>
+      <button class="modal-close" onclick="closeModal('cardModal')">×</button>
+    </div>
+    <div class="modal-body" id="cardModalBody">
+      <!-- Populated by JS -->
+    </div>
+    <div class="modal-footer">
+      <button class="btn-ghost" onclick="closeModal('cardModal')">Close</button>
+      <button class="btn-primary" onclick="saveCardDetail()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!-- JAVASCRIPT -->
+<!-- ════════════════════════════════════════════════ -->
+<script>
+// ── STATE ─────────────────────────────────────────
+const ACTIVE_PID = {{ active.id if active else 'null' }};
+let portfolioMode = 'create'; // 'create' | 'edit'
+let editPortfolioId = null;
+let selectedColor = '#00d4ff';
+let selectedIcon  = '📊';
+let draggingCard  = null;
+let currentCardData = null;
+
+// ── TOAST ─────────────────────────────────────────
+function toast(msg, type='success') {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = `toast ${type}`;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ── MODAL HELPERS ─────────────────────────────────
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.querySelectorAll('.modal-overlay').forEach(m => {
+  m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); });
+});
+
+// ── PORTFOLIO CREATE / EDIT ───────────────────────
+function selectColor(el) {
+  document.querySelectorAll('.color-opt').forEach(x => x.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedColor = el.dataset.color;
+}
+function selectIcon(el) {
+  document.querySelectorAll('.icon-opt').forEach(x => x.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedIcon = el.dataset.icon;
+}
+
+document.getElementById('btnNewPortfolio')?.addEventListener('click', () => {
+  portfolioMode = 'create';
+  document.getElementById('portfolioModalTitle').textContent = 'New Portfolio';
+  document.getElementById('btnSavePortfolio').textContent = 'Create';
+  document.getElementById('pName').value = '';
+  document.getElementById('pDesc').value = '';
+  openModal('portfolioModal');
+});
+document.getElementById('btnEmptyCreate')?.addEventListener('click', () => {
+  portfolioMode = 'create';
+  document.getElementById('portfolioModalTitle').textContent = 'New Portfolio';
+  document.getElementById('btnSavePortfolio').textContent = 'Create';
+  openModal('portfolioModal');
+});
+document.getElementById('sideNewPortfolio')?.addEventListener('click', e => {
+  e.preventDefault();
+  portfolioMode = 'create';
+  document.getElementById('portfolioModalTitle').textContent = 'New Portfolio';
+  document.getElementById('btnSavePortfolio').textContent = 'Create';
+  openModal('portfolioModal');
+});
+document.getElementById('btnEditPortfolio')?.addEventListener('click', () => {
+  portfolioMode = 'edit';
+  editPortfolioId = ACTIVE_PID;
+  document.getElementById('portfolioModalTitle').textContent = 'Edit Portfolio';
+  document.getElementById('btnSavePortfolio').textContent = 'Save';
+  document.getElementById('pName').value = {{ ('"' + active.name + '"') if active else '""' }};
+  document.getElementById('pDesc').value = {{ ('"' + (active.description or '') + '"') if active else '""' }};
+  openModal('portfolioModal');
+});
+
+async function savePortfolio() {
+  const name = document.getElementById('pName').value.trim();
+  if (!name) { toast('Portfolio name required', 'error'); return; }
+  const payload = {
+    name, description: document.getElementById('pDesc').value,
+    color: selectedColor, icon: selectedIcon
+  };
+  if (portfolioMode === 'create') {
+    const r = await fetch('/api/portfolio/create', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (d.id) { window.location = `/planner?p=${d.id}`; }
+    else toast(d.error || 'Error', 'error');
+  } else {
+    const r = await fetch(`/api/portfolio/${editPortfolioId}`, {
+      method: 'PUT', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (d.ok) window.location.reload();
+    else toast('Update failed', 'error');
+  }
+}
+
+document.getElementById('btnDeletePortfolio')?.addEventListener('click', async function() {
+  if (!confirm('Delete this portfolio? Assets are not removed from your watchlist.')) return;
+  const pid = this.dataset.pid;
+  await fetch(`/api/portfolio/${pid}`, { method: 'DELETE' });
+  window.location = '/planner';
+});
+
+// ── ADD ASSET ─────────────────────────────────────
+document.getElementById('btnAddAsset')?.addEventListener('click', () => openModal('addAssetModal'));
+
+async function saveAddAsset() {
+  const wid = document.getElementById('assetPickerSelect').value;
+  if (!wid) { toast('Select an asset', 'error'); return; }
+  const payload = {
+    watchlist_id: parseInt(wid),
+    column: document.getElementById('assetColumnSelect').value,
+    buy_price: parseFloat(document.getElementById('assetBuyPrice').value) || null,
+    exit_expectations: document.getElementById('assetExitExp').value,
+    user_remarks: document.getElementById('assetRemark').value,
+    deviation_tolerance: parseFloat(document.getElementById('assetDeviation').value) || 5.0
+  };
+  const r = await fetch(`/api/portfolio/${ACTIVE_PID}/add_asset`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const d = await r.json();
+  if (d.ok) { closeModal('addAssetModal'); toast('Asset added'); window.location.reload(); }
+  else toast(d.message || d.error || 'Error', 'error');
+}
+
+// ── DRAG AND DROP ─────────────────────────────────
+function onDragOver(e) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+function onDragEnter(e) { e.currentTarget.querySelector('.column-body')?.classList.add('drag-over'); }
+function onDragLeave(e) {
+  if (!e.currentTarget.contains(e.relatedTarget))
+    e.currentTarget.querySelector('.column-body')?.classList.remove('drag-over');
+}
+function onDrop(e) {
+  e.preventDefault();
+  const col = e.currentTarget.dataset.column;
+  const pid = e.currentTarget.dataset.pid;
+  e.currentTarget.querySelector('.column-body')?.classList.remove('drag-over');
+  if (!draggingCard || !col) return;
+  const paid = draggingCard.dataset.paid;
+  const fromCol = draggingCard.dataset.col;
+  if (fromCol === col) return;
+  moveCard(parseInt(paid), parseInt(pid), col, fromCol);
+}
+
+document.querySelectorAll('.asset-card').forEach(card => {
+  card.addEventListener('dragstart', e => {
+    draggingCard = card;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+  });
+  card.addEventListener('dragend', () => {
+    card.classList.remove('dragging');
+    draggingCard = null;
+  });
+});
+
+async function moveCard(paid, pid, newCol, fromCol) {
+  const r = await fetch(`/api/portfolio/asset/${paid}/move`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ portfolio_id: pid, column: newCol })
+  });
+  const d = await r.json();
+  if (d.ok) {
+    toast(`Moved to ${newCol}`);
+    window.location.reload();
+  } else toast('Move failed', 'error');
+}
+
+// ── SUGGESTIONS ───────────────────────────────────
+async function applySuggestion(btn) {
+  const row = btn.closest('.suggestion-item');
+  const paid = row.dataset.paid;
+  const col  = row.dataset.col;
+  const pid  = row.dataset.pid;
+  await moveCard(parseInt(paid), parseInt(pid), col, null);
+}
+function dismissSuggestion(btn) {
+  btn.closest('.suggestion-item').remove();
+  if (!document.querySelector('.suggestion-item'))
+    document.getElementById('suggestionsBanner')?.remove();
+}
+
+// ── CARD DETAIL MODAL ─────────────────────────────
+function openCardDetail(paid, ticker, company, rsi, adx, exitScore, remark, exitExp, buyPrice, trend, pid) {
+  currentCardData = { paid, pid, ticker, company };
+  document.getElementById('cardModalTitle').textContent = `${ticker} — ${company}`;
+  document.getElementById('cardModalBody').innerHTML = `
+    <div class="card-detail-grid">
+      <div class="field span2">
+        <label>Engine Analysis</label>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:11px;padding:8px;background:var(--card);border:1px solid var(--border);">
+          <span>Trend: <strong style="color:var(--accent)">${trend || '—'}</strong></span>
+          ${rsi ? `<span>RSI: <strong style="color:${rsi<30?'var(--red)':rsi<50?'var(--yellow)':'var(--green)'}">${rsi}</strong></span>` : ''}
+          ${adx ? `<span>ADX: <strong>${adx}</strong></span>` : ''}
+          ${exitScore > 0 ? `<span>Exit Score: <strong style="color:${exitScore>=3?'var(--red)':'var(--yellow)'}">${exitScore}/7</strong></span>` : ''}
+        </div>
+      </div>
+      <div class="field">
+        <label>Buy Price</label>
+        <input type="number" id="cdBuyPrice" value="${buyPrice || ''}" placeholder="Your buy price" step="0.01">
+      </div>
+      <div class="field">
+        <label>Expected Trend</label>
+        <select id="cdExpTrend">
+          <option value="uptrend"       ${trend==='uptrend'?'selected':''}>Uptrend</option>
+          <option value="consolidation" ${trend==='consolidation'?'selected':''}>Consolidation</option>
+          <option value="downtrend"     ${trend==='downtrend'?'selected':''}>Downtrend</option>
+        </select>
+      </div>
+      <div class="field span2">
+        <label>Exit Expectations</label>
+        <textarea id="cdExitExp" rows="2" placeholder="When / how you plan to exit">${exitExp || ''}</textarea>
+      </div>
+      <div class="field span2">
+        <label>Your Remark</label>
+        <textarea id="cdRemark" rows="2" placeholder='e.g. "If rises 50%, partial exit"'>${remark || ''}</textarea>
+      </div>
+      <div class="field span2">
+        <label>Add Note to History</label>
+        <textarea id="cdNewRemark" rows="2" placeholder="Log a new note (will be saved to history)"></textarea>
+      </div>
+    </div>
+  `;
+  openModal('cardModal');
+}
+
+async function saveCardDetail() {
+  if (!currentCardData) return;
+  const { paid, pid } = currentCardData;
+  const payload = {
+    portfolio_id: pid,
+    buy_price: parseFloat(document.getElementById('cdBuyPrice')?.value) || null,
+    user_expected_trend: document.getElementById('cdExpTrend')?.value,
+    exit_expectations:   document.getElementById('cdExitExp')?.value || '',
+    user_remarks:        document.getElementById('cdRemark')?.value || '',
+    new_remark:          document.getElementById('cdNewRemark')?.value || ''
+  };
+  const r = await fetch(`/api/portfolio/asset/${paid}/update`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload)
+  });
+  const d = await r.json();
+  if (d.ok) { closeModal('cardModal'); toast('Card saved'); window.location.reload(); }
+  else toast('Save failed', 'error');
+}
+
+async function removeCard(paid, pid) {
+  if (!confirm('Remove from this portfolio? (Asset stays in watchlist)')) return;
+  const r = await fetch(`/api/portfolio/asset/${paid}/remove`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ portfolio_id: pid })
+  });
+  const d = await r.json();
+  if (d.ok) { toast('Removed from portfolio'); window.location.reload(); }
+}
+
+// ── RIGHT PANEL TOGGLE ────────────────────────────
+const rightPanel  = document.getElementById('rightPanel');
+const workspace   = document.getElementById('workspace');
+const panelToggle = document.getElementById('panelToggle');
+
+panelToggle.addEventListener('click', () => {
+  const isOpen = rightPanel.classList.toggle('open');
+  workspace.classList.toggle('panel-open', isOpen);
+  if (isOpen) loadNews('global');
+});
+document.getElementById('btnClosePanel')?.addEventListener('click', () => {
+  rightPanel.classList.remove('open');
+  workspace.classList.remove('panel-open');
+});
+
+// ── AI ASSISTANT ──────────────────────────────────
+document.getElementById('btnAiRefresh')?.addEventListener('click', loadAiInsight);
+document.getElementById('aiTickerSelect')?.addEventListener('change', loadAiInsight);
+
+async function loadAiInsight() {
+  const sel = document.getElementById('aiTickerSelect');
+  if (!sel?.value) return;
+  const opt = sel.options[sel.selectedIndex];
+  const ticker  = sel.value;
+  const company = opt.dataset.company || ticker;
+  const wid     = opt.dataset.id;
+
+  document.getElementById('aiInsightText').textContent = '...';
+  document.getElementById('aiInsightText').className = 'ai-loading';
+
+  // Fetch analysis first
+  let analysis = {};
+  try {
+    const ar = await fetch(`/api/analysis/${ticker}`);
+    if (ar.ok) analysis = await ar.json();
+  } catch(e) {}
+
+  const r = await fetch('/api/ai/insight', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ ticker, company_name: company, analysis })
+  });
+  const d = await r.json();
+  const el = document.getElementById('aiInsightText');
+  el.textContent = d.insight || 'No insight available.';
+  el.className = '';
+}
+
+// ── NEWS ──────────────────────────────────────────
+let activeRegion = 'global';
+
+document.getElementById('regionTabs')?.addEventListener('click', e => {
+  const btn = e.target.closest('.region-tab');
+  if (!btn) return;
+  document.querySelectorAll('.region-tab').forEach(x => x.classList.remove('active'));
+  btn.classList.add('active');
+  activeRegion = btn.dataset.region;
+  loadNews(activeRegion);
+});
+
+async function loadNews(region) {
+  const spinner = document.getElementById('newsSpinner');
+  const list    = document.getElementById('newsItems');
+  spinner.style.display = '';
+  list.innerHTML = '<div style="font-size:11px;color:var(--text-dim);">Loading...</div>';
+  try {
+    const r = await fetch(`/api/news?region=${region}`);
+    const d = await r.json();
+    if (!d.articles?.length) {
+      list.innerHTML = '<div style="font-size:11px;color:var(--text-dim);">No news available.</div>';
+      return;
+    }
+    list.innerHTML = d.articles.map(a => `
+      <div class="news-item">
+        <a href="${a.link || '#'}" target="_blank" rel="noopener">${a.title}</a>
+        ${a.published ? `<div class="news-item-time">${a.published.slice(0,22)}</div>` : ''}
+      </div>
+    `).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="font-size:11px;color:var(--red);">News unavailable.</div>';
+  } finally {
+    spinner.style.display = 'none';
+  }
+}
+
+// ── MINI CHARTS (sparkline) ───────────────────────
+// Draw simple sparkline from stored price history
+function drawSparkline(canvasId, prices, isUp) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !prices?.length) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width  = canvas.offsetWidth;
+  const h = canvas.height = 36;
+  const min = Math.min(...prices), max = Math.max(...prices);
+  const range = max - min || 1;
+  ctx.clearRect(0, 0, w, h);
+  ctx.strokeStyle = isUp ? '#00ff88' : '#ff3b5c';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  prices.forEach((p, i) => {
+    const x = (i / (prices.length - 1)) * w;
+    const y = h - ((p - min) / range) * (h - 4) - 2;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+// ── ESC KEY ───────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+});
+</script>
+
+<!-- ── JINJA MACRO (asset card HTML) ─────────────── -->
+{%- macro asset_card(asset, pid) %}
+{% set trend = asset.trend_state or 'unknown' %}
+{% set rsi   = asset.rsi %}
+{% set adx   = asset.adx %}
+{% set score = asset.exit_score or 0 %}
+{% set bp    = asset.buy_price or asset.entry_price %}
+<div class="asset-card"
+     draggable="true"
+     id="card-{{ asset.id }}"
+     data-paid="{{ asset.id }}"
+     data-col="{{ asset.kanban_column }}"
+     data-ticker="{{ asset.ticker }}"
+     data-pid="{{ pid }}">
+
+  <!-- HEADER -->
+  <div class="card-header">
+    <div>
+      <div class="card-ticker">{{ asset.ticker }}</div>
+      <div class="card-company">{{ asset.company_name }}</div>
+    </div>
+    <div class="card-price-block">
+      <div class="card-price">—</div>
+      {% if bp %}
+        <div class="card-pnl neu" id="pnl-{{ asset.id }}">entry {{ "%.2f"|format(bp) }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- MINI CHART -->
+  <div class="mini-chart">
+    <div class="mini-chart-placeholder">chart · 1mo</div>
+  </div>
+
+  <!-- BADGES -->
+  <div class="card-badges">
+    <span class="badge badge-{{ trend }}">
+      {% if trend == 'uptrend' %}📈{% elif trend == 'downtrend' %}📉{% else %}➡️{% endif %}
+      {{ trend }}
+    </span>
+    {% if score >= 3 %}
+      <span class="badge badge-risk">⚠ risk {{ score }}/7</span>
+    {% endif %}
+    {% if asset.asset_type and asset.asset_type != 'stock' %}
+      <span class="badge" style="color:var(--purple);border-color:rgba(176,96,255,0.3);">{{ asset.asset_type | upper }}</span>
+    {% endif %}
+  </div>
+
+  <!-- INDICATORS -->
+  {% if rsi or adx %}
+  <div class="card-indicators">
+    {% if rsi %}
+      <span class="ci-item ci-rsi-{% if rsi < 30 %}exit{% elif rsi < 50 %}weak{% else %}ok{% endif %}">
+        RSI <span>{{ rsi }}</span>
+      </span>
+    {% endif %}
+    {% if adx %}
+      <span class="ci-item">ADX <span>{{ adx }}</span></span>
+    {% endif %}
+    {% if asset.volume_ratio %}
+      <span class="ci-item">Vol <span>{{ asset.volume_ratio }}x</span></span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- REMARK PREVIEW -->
+  {% if asset.user_remarks %}
+    <div class="card-remark" title="{{ asset.user_remarks }}">{{ asset.user_remarks }}</div>
+  {% endif %}
+
+  <!-- FOOTER -->
+  <div class="card-footer">
+    <div class="card-days">
+      {% if asset.watchlist_created_at %}
+        added {{ asset.watchlist_created_at[:10] }}
+      {% endif %}
+    </div>
+    <div class="card-actions">
+      <button class="card-btn"
+        onclick="openCardDetail({{ asset.id }}, '{{ asset.ticker }}', '{{ asset.company_name }}',
+          {{ rsi or 'null' }}, {{ adx or 'null' }}, {{ score }},
+          `{{ asset.user_remarks or '' }}`, `{{ asset.exit_expectations or '' }}`,
+          {{ bp or 'null' }}, '{{ trend }}', {{ pid }})">
+        Edit
+      </button>
+      <button class="card-btn danger"
+        onclick="removeCard({{ asset.id }}, {{ pid }})">×</button>
+    </div>
+  </div>
+</div>
+{%- endmacro %}
+
+</body>
+</html>

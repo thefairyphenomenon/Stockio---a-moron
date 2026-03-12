@@ -2,6 +2,9 @@ from flask import Flask, render_template, request, redirect, url_for, session, j
 from functools import wraps
 import database as db
 import engine
+import portfolio_service as ps
+import news_service
+import ai_assistant_service as ai_svc
 from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 import os
@@ -329,6 +332,168 @@ def admin_run_engine():
     engine.run_alert_engine()
     flash("Alert engine ran manually", "success")
     return redirect(url_for("admin_panel"))
+
+# ═══════════════════════════════════════════════════════
+# PLANNER ROUTES — Portfolio workspace
+# ═══════════════════════════════════════════════════════
+
+@app.route("/planner")
+@login_required
+def planner():
+    portfolios = ps.get_user_portfolios(session["user_id"])
+    watchlist  = ps.get_watchlist_for_user(session["user_id"])
+    # Auto-select first portfolio, or None
+    active_id  = request.args.get("p", type=int)
+    active     = None
+    board      = {"uptrend": [], "consolidation": [], "downtrend": []}
+    suggestions= []
+    if portfolios:
+        active_id  = active_id or portfolios[0]["id"]
+        active     = ps.get_portfolio(active_id, session["user_id"])
+        if active:
+            board       = ps.get_portfolio_assets_by_column(active_id)
+            suggestions = ps.get_engine_suggestions(active_id)
+    return render_template("planner.html",
+        portfolios=portfolios, active=active, board=board,
+        watchlist=watchlist, suggestions=suggestions,
+        user=db.get_user_by_id(session["user_id"]))
+
+# ── Portfolio CRUD ────────────────────────────────────
+@app.route("/api/portfolio/create", methods=["POST"])
+@login_required
+def api_create_portfolio():
+    data  = request.get_json(silent=True) or request.form
+    name  = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "Name required"}), 400
+    pid = ps.create_portfolio(
+        session["user_id"], name,
+        description=data.get("description", ""),
+        color=data.get("color", "#00d4ff"),
+        icon=data.get("icon", "📊")
+    )
+    return jsonify({"id": pid, "name": name})
+
+@app.route("/api/portfolio/<int:pid>", methods=["PUT"])
+@login_required
+def api_update_portfolio(pid):
+    data = request.get_json(silent=True) or {}
+    ok   = ps.update_portfolio(pid, session["user_id"], **data)
+    return jsonify({"ok": ok})
+
+@app.route("/api/portfolio/<int:pid>", methods=["DELETE"])
+@login_required
+def api_delete_portfolio(pid):
+    ps.delete_portfolio(pid, session["user_id"])
+    return jsonify({"ok": True})
+
+# ── Asset card CRUD ───────────────────────────────────
+@app.route("/api/portfolio/<int:pid>/assets")
+@login_required
+def api_portfolio_assets(pid):
+    # Verify ownership
+    if not ps.get_portfolio(pid, session["user_id"]):
+        return jsonify({"error": "Not found"}), 404
+    board = ps.get_portfolio_assets_by_column(pid)
+    return jsonify(board)
+
+@app.route("/api/portfolio/<int:pid>/add_asset", methods=["POST"])
+@login_required
+def api_add_asset(pid):
+    if not ps.get_portfolio(pid, session["user_id"]):
+        return jsonify({"error": "Not found"}), 404
+    data = request.get_json(silent=True) or request.form
+    watchlist_id = data.get("watchlist_id")
+    if not watchlist_id:
+        return jsonify({"error": "watchlist_id required"}), 400
+    # Verify user owns this watchlist stock
+    conn  = db.get_db()
+    stock = conn.execute("SELECT id FROM watchlist WHERE id=? AND user_id=?",
+                         (watchlist_id, session["user_id"])).fetchone()
+    conn.close()
+    if not stock:
+        return jsonify({"error": "Stock not in your watchlist"}), 403
+    ok, msg = ps.add_asset_to_portfolio(
+        pid, int(watchlist_id),
+        kanban_column=data.get("column", "consolidation"),
+        buy_price=data.get("buy_price"),
+        user_remarks=data.get("user_remarks", ""),
+        exit_expectations=data.get("exit_expectations", ""),
+        deviation_tolerance=float(data.get("deviation_tolerance", 5.0))
+    )
+    return jsonify({"ok": ok, "message": msg})
+
+@app.route("/api/portfolio/asset/<int:paid>/move", methods=["POST"])
+@login_required
+def api_move_asset(paid):
+    data   = request.get_json(silent=True) or request.form
+    pid    = data.get("portfolio_id")
+    column = data.get("column")
+    order  = data.get("order")
+    if not ps.get_portfolio(int(pid), session["user_id"]):
+        return jsonify({"error": "Not found"}), 404
+    ok = ps.move_asset_column(paid, int(pid), column,
+                               new_order=int(order) if order is not None else None)
+    return jsonify({"ok": ok})
+
+@app.route("/api/portfolio/asset/<int:paid>/update", methods=["POST"])
+@login_required
+def api_update_asset(paid):
+    data = request.get_json(silent=True) or request.form.to_dict()
+    pid  = data.pop("portfolio_id", None)
+    if not pid or not ps.get_portfolio(int(pid), session["user_id"]):
+        return jsonify({"error": "Not found"}), 404
+    ok = ps.update_asset_card(paid, int(pid), **data)
+    # If there's a new remark, log it separately
+    remark = data.get("new_remark", "").strip()
+    if remark:
+        ps.add_remark(paid, remark)
+    return jsonify({"ok": ok})
+
+@app.route("/api/portfolio/asset/<int:paid>/remove", methods=["POST"])
+@login_required
+def api_remove_asset(paid):
+    data = request.get_json(silent=True) or request.form
+    pid  = data.get("portfolio_id")
+    if not pid or not ps.get_portfolio(int(pid), session["user_id"]):
+        return jsonify({"error": "Not found"}), 404
+    ps.remove_asset_from_portfolio(paid, int(pid))
+    return jsonify({"ok": True})
+
+# ── Engine analysis + AI ──────────────────────────────
+@app.route("/api/analysis/<ticker>")
+@login_required
+def api_analysis(ticker):
+    conn  = db.get_db()
+    stock = conn.execute("SELECT id FROM watchlist WHERE ticker=? AND user_id=?",
+                         (ticker.upper(), session["user_id"])).fetchone()
+    conn.close()
+    if not stock:
+        return jsonify({"error": "Not in watchlist"}), 404
+    analysis = ps.get_engine_analysis(stock["id"])
+    return jsonify(analysis)
+
+@app.route("/api/ai/insight", methods=["POST"])
+@login_required
+def api_ai_insight():
+    data     = request.get_json(silent=True) or {}
+    ticker   = data.get("ticker", "")
+    company  = data.get("company_name", ticker)
+    analysis = data.get("analysis", {})
+    insight  = ai_svc.get_insight(ticker, company, analysis)
+    return jsonify({"insight": insight})
+
+# ── News ──────────────────────────────────────────────
+@app.route("/api/news")
+@login_required
+def api_news():
+    region = request.args.get("region", "global")
+    return jsonify(news_service.get_news(region))
+
+@app.route("/api/news/regions")
+@login_required
+def api_news_regions():
+    return jsonify(news_service.get_all_regions())
 
 if __name__ == "__main__":
     db.init_db()
