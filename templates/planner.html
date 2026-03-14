@@ -391,7 +391,9 @@ nav {
           </div>
           <div class="header-actions">
             <button class="btn-ghost" id="btnAddAsset">+ Add Asset</button>
-            <button class="btn-ghost" id="btnEditPortfolio">Edit</button>
+            <button class="btn-ghost" id="btnEditPortfolio"
+                    data-name="{{ active.name | e }}"
+                    data-desc="{{ (active.description or '') | e }}">Edit</button>
             <button class="btn-danger" id="btnDeletePortfolio"
                     data-pid="{{ active.id }}">Delete</button>
           </div>
@@ -728,8 +730,10 @@ document.getElementById('btnEditPortfolio')?.addEventListener('click', () => {
   editPortfolioId = ACTIVE_PID;
   document.getElementById('portfolioModalTitle').textContent = 'Edit Portfolio';
   document.getElementById('btnSavePortfolio').textContent = 'Save';
-  document.getElementById('pName').value = {{ ('"' + active.name + '"') if active else '""' }};
-  document.getElementById('pDesc').value = {{ ('"' + (active.description or '') + '"') if active else '""' }};
+  // Read current values from data attributes on the button — avoids Jinja HTML-escaping in JS
+  const btn = document.getElementById('btnEditPortfolio');
+  document.getElementById('pName').value = btn.dataset.name || '';
+  document.getElementById('pDesc').value = btn.dataset.desc || '';
   openModal('portfolioModal');
 });
 
