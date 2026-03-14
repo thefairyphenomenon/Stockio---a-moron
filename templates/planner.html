@@ -1030,6 +1030,16 @@ function drawSparkline(canvasId, prices, isUp) {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
 });
+
+// ── AUTO-OPEN CREATE MODAL if ?new=1 ─────────────
+if (new URLSearchParams(window.location.search).get('new') === '1') {
+  portfolioMode = 'create';
+  document.getElementById('portfolioModalTitle').textContent = 'New Portfolio';
+  document.getElementById('btnSavePortfolio').textContent = 'Create';
+  document.getElementById('pName').value = '';
+  document.getElementById('pDesc').value = '';
+  openModal('portfolioModal');
+}
 </script>
 
 <!-- ── JINJA MACRO (asset card HTML) ─────────────── -->
